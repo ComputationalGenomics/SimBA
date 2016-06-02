@@ -16,14 +16,20 @@ set (SEQAN_APP_VERSION "0.0.1")
 # Dependencies
 # ----------------------------------------------------------------------------
 
-# Search SeqAn and select dependencies.
+# Search dependencies.
 find_package (ZLIB)
+find_package (Boost REQUIRED)
 find_package (SeqAn REQUIRED)
 
-# Warn if Zlib was not found.
 if (NOT ZLIB_FOUND)
   message (STATUS "  Zlib not found: building vcf_sim without gzipped input/output.")
-endif (NOT ZLIB_FOUND)
+endif ()
+if (NOT Boost_FOUND)
+  message (STATUS "  Boost not found: not building vcf_sim.")
+endif ()
+#if (NOT SeqAn_FOUND)
+#  message (STATUS "  SeqAn not found: not building vcf_sim.")
+#endif ()
 
 # ----------------------------------------------------------------------------
 # Build Setup
@@ -31,6 +37,7 @@ endif (NOT ZLIB_FOUND)
 
 # Add include directories.
 include_directories (${SEQAN_INCLUDE_DIRS})
+include_directories (SYSTEM ${Boost_INCLUDE_DIRS})
 
 # Add definitions set by find_package (SeqAn).
 add_definitions (${SEQAN_DEFINITIONS})
@@ -42,9 +49,10 @@ add_definitions (-DSEQAN_DATE="${SEQAN_DATE}")
 
 # Update the list of file names below if you add source files to your application.
 add_executable (vcf_sim vcf_sim.cpp)
+add_executable (vcf_eval vcf_eval.cpp)
 
 # Add dependencies found by find_package (SeqAn).
-target_link_libraries (vcf_sim ${SEQAN_LIBRARIES})
+target_link_libraries (vcf_sim ${Boost_LIBRARIES} ${SEQAN_LIBRARIES})
 
 # Add CXX flags found by find_package (SeqAn).
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEQAN_CXX_FLAGS}")
@@ -59,7 +67,7 @@ if (NOT SEQAN_PREFIX_SHARE_DOC)
 endif (NOT SEQAN_PREFIX_SHARE_DOC)
 
 # Install vcf_sim in ${PREFIX}/bin directory
-install (TARGETS vcf_sim
+install (TARGETS vcf_sim vcf_eval
          DESTINATION bin)
 
 # Install non-binary files for the package to "." for app builds and
