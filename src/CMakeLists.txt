@@ -57,9 +57,6 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEQAN_CXX_FLAGS}")
 add_executable (sim sim.cpp)
 target_link_libraries (sim ${SEQAN_LIBRARIES})
 
-add_executable (eval eval.cpp)
-target_link_libraries (eval ${SEQAN_LIBRARIES})
-
 # ----------------------------------------------------------------------------
 # Tests
 # ----------------------------------------------------------------------------
@@ -69,4 +66,4 @@ target_link_libraries (eval ${SEQAN_LIBRARIES})
 # ----------------------------------------------------------------------------
 
 # Install in ${PREFIX}/bin directory
-#install (TARGETS eval sim DESTINATION bin)
+#install (TARGETS sim DESTINATION bin)
