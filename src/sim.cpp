@@ -7,77 +7,9 @@
 #include <seqan/arg_parse.h>
 #include <seqan/vcf_io.h>
 
-//#include <boost/algorithm/string/join.hpp>
-
 // ============================================================================
-// Tags, Classes, Enums
+// Extensions to STL
 // ============================================================================
-
-// ----------------------------------------------------------------------------
-// Class Options
-// ----------------------------------------------------------------------------
-
-struct Options
-{
-    seqan::CharString vcf_filename_in;
-    seqan::CharString vcf_filename_out;
-
-    unsigned seed;
-
-    unsigned n_ploidy;
-    unsigned n_samples;
-    unsigned n_crosses;
-
-    bool input_phased;
-    bool output_phased;
-
-     Options():
-        seed(0),
-        n_ploidy(4),
-        n_samples(std::numeric_limits<unsigned>::max()),
-        n_crosses(1),
-        input_phased(false),
-        output_phased(false)
-    {}
-};
-
-// ============================================================================
-// Functions
-// ============================================================================
-
-//        for (auto const & c : contigNames(context(vcf_in)))
-//            std::cerr << c << std::endl;
-//        std::cerr << std::endl;
-//        for (auto const & s : sampleNames(context(vcf_in)))
-//            std::cerr << s << std::endl;
-//        std::cerr << std::endl;
-//
-//        unsigned n = 10;
-//        String<unsigned> zeros;
-//        resize(zeros, n, 0, Exact());
-//        StringSet<String<unsigned> > m;
-//        for (unsigned i = 0; i < n; i++)
-//            appendValue(m, zeros);
-//        for (unsigned i = 0; i < n; i++)
-//            for (unsigned j = i + 1; j < n; j++)
-//                m[i][j] = i * n + j - (i + 1) * (i + 2) / 2;
-//
-//        for (unsigned i = 0; i < n; i++)
-//        {
-//            for (unsigned j = 0; j < n; j++)
-//                std::cerr << m[i][j] << '\t';
-//            std::cerr << std::endl;
-//        }
-//
-//        for (unsigned x = 0; x < binom2(n); x++)
-//        {
-//            // Solve x = i * n + j - (i) * (i + 1) / 2 - 1 for i
-//            double i_d = (2 * n - 1 - std::sqrt(4 * n * n - 4 * n - 8 * x - 7)) / 2;
-//            unsigned i = (i_d == std::floor(i_d)) ? i_d - 1: i_d;
-//            unsigned j = x - i * n + i * (i + 1) / 2 + i + 1;
-//            std::cerr << x << " ==> " << std::make_pair(i,j) << std::endl;
-//            std::cerr << binom2_idx_make_pair(x, n) << " <==> " << x << std::endl;
-//        }
 
 // ----------------------------------------------------------------------------
 // Operator <<
@@ -85,20 +17,212 @@ struct Options
 
 namespace std
 {
-	template <typename T1, typename T2>
-	std::ostream& operator<<(std::ostream & s, std::pair<T1, T2> const & p)
-	{
-		s << '<' << std::get<0>(p) << ',' << std::get<1>(p) << '>';
-		return s;
-	}
-
-	template <typename T1, typename T2, typename T3>
-	std::ostream& operator<<(std::ostream & s, std::tuple<T1, T2, T3> const & t)
-	{
-		s << '{' << std::get<0>(t) << "; " << std::get<1>(t) << "; " << std::get<2>(t) << '}';
-		return s;
-	}
+template <typename T1, typename T2>
+std::ostream& operator<<(std::ostream & s, std::pair<T1, T2> const & p)
+{
+    s << '<' << std::get<0>(p) << ',' << std::get<1>(p) << '>';
+    return s;
 }
+
+template <typename T1, typename T2, typename T3>
+std::ostream& operator<<(std::ostream & s, std::tuple<T1, T2, T3> const & t)
+{
+    s << '{' << std::get<0>(t) << "; " << std::get<1>(t) << "; " << std::get<2>(t) << '}';
+    return s;
+}
+
+template <typename T>
+std::ostream& operator<<(std::ostream & s, std::vector<T> const & v)
+{
+    s << "[ ";
+    std::copy(v.begin(), v.end(), std::ostream_iterator<T>(s, " "));
+    s << "]";
+    return s;
+}
+}
+
+// ============================================================================
+// Functions on genotypes
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Function get_ploidy()
+// ----------------------------------------------------------------------------
+
+template <typename genotype_t>
+inline uint32_t get_ploidy(genotype_t const & genotype)
+{
+    return genotype.size();
+}
+
+// ----------------------------------------------------------------------------
+// Function is_homozygous()
+// ----------------------------------------------------------------------------
+
+template <typename genotype_t>
+inline bool is_homozygous(genotype_t const & genotype)
+{
+    return std::adjacent_find(genotype.begin(), genotype.end(), std::not_equal_to<char>()) == genotype.end();
+}
+
+// ----------------------------------------------------------------------------
+// Function ref_dosage()
+// ----------------------------------------------------------------------------
+
+template <typename genotype_t>
+inline size_t ref_dosage(genotype_t const & genotype)
+{
+    return std::count(genotype.begin(), genotype.end(), '0');
+}
+
+// ----------------------------------------------------------------------------
+// Function is_unknown()
+// ----------------------------------------------------------------------------
+
+template <typename genotype_t>
+inline bool is_unknown(genotype_t const & genotype)
+{
+    return genotype.size() == 1u && genotype.front() == '.';
+}
+
+// ----------------------------------------------------------------------------
+// Function read_genotype()
+// ----------------------------------------------------------------------------
+// Read genotype string.
+
+template <typename genotype_t, typename genotype_info_t>
+inline void read_genotype(genotype_t & genotype, genotype_info_t const & genotype_info)
+{
+    genotype.clear();
+
+    auto genotype_it = directionIterator(genotype_info, seqan::Input());
+    seqan::readUntil(genotype, genotype_it, seqan::EqualsChar<':'>());
+
+    // Convert genotype string to vector by removing slashes.
+    genotype.erase(std::remove(genotype.begin(), genotype.end(), '/'), genotype.end());
+    genotype.erase(std::remove(genotype.begin(), genotype.end(), '|'), genotype.end());
+}
+
+// ----------------------------------------------------------------------------
+// Function ref_genotype()
+// ----------------------------------------------------------------------------
+
+template <typename genotype_t>
+inline void ref_genotype(genotype_t & genotype)
+{
+    std::fill(genotype.begin(), genotype.end(), 0u);
+}
+
+// ----------------------------------------------------------------------------
+// Function read_alleles()
+// ----------------------------------------------------------------------------
+// Read genotype string.
+
+template <typename alleles_t>
+inline void read_alleles(alleles_t & alleles, seqan::VcfRecord const & record)
+{
+    front(alleles) = record.ref;
+
+    clear(back(alleles));
+    auto alleles_it = directionIterator(record.alt, seqan::Input());
+    seqan::readUntil(back(alleles), alleles_it, seqan::EqualsChar<','>());
+}
+
+// ============================================================================
+// Markers
+// ============================================================================
+
+struct markers
+{
+    typedef std::pair<uint32_t, uint32_t> position_t;
+    typedef std::array<seqan::IupacString, 2> alleles_t;
+    typedef std::vector<uint32_t> dosages_t;
+
+    std::vector<position_t> positions; // positions[m] = (chr, pos)
+    std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
+    std::vector<dosages_t> dosages;    // dosages[m] = [f(0),f(1),...,f(p)]
+};
+
+// ----------------------------------------------------------------------------
+// Method read_markers()
+// ----------------------------------------------------------------------------
+
+inline void read_markers(markers & markers_in, uint32_t n_ploidy, std::string const & vcf_filename_in)
+{
+    typedef markers::position_t position_t;
+    typedef markers::alleles_t alleles_t;
+    typedef markers::dosages_t dosages_t;
+    typedef std::vector<char> genotype_t;
+
+    position_t position;
+    alleles_t alleles;
+    dosages_t dosages;
+    genotype_t genotype;
+
+    seqan::VcfHeader vcf_header;
+    seqan::VcfRecord vcf_record;
+
+    seqan::VcfFileIn vcf_file_in(vcf_filename_in.c_str());
+    readHeader(vcf_header, vcf_file_in);
+
+    while (!atEnd(vcf_file_in))
+    {
+        readRecord(vcf_record, vcf_file_in);
+
+        position_t position = std::make_pair(vcf_record.rID, vcf_record.beginPos);
+        read_alleles(alleles, vcf_record);
+
+        if (length(alleles) > 2)
+        {
+            std::cerr << "VARIANT @ " << position << " POLYALLELIC" << std::endl;
+            continue;
+        }
+
+        dosages.resize(n_ploidy);
+        std::fill(dosages.begin(), dosages.end(), 0u);
+
+        // Read all sample genotypes.
+        for (auto const & genotype_info : vcf_record.genotypeInfos)
+        {
+            read_genotype(genotype, genotype_info);
+
+            // Skip unknown variants.
+            if (is_unknown(genotype))
+            {
+                std::cerr << "GENOTYPE @ " << position << " UNKNOWN" << std::endl;
+                continue;
+            }
+
+            // Stop on wrong ploidy.
+            if (get_ploidy(genotype) != n_ploidy)
+                throw seqan::IOError("Input ploidy does not match VCF genotypes");
+
+            dosages[ref_dosage(genotype)]++;
+        }
+
+        markers_in.positions.push_back(position);
+        markers_in.alleles.push_back(alleles);
+        markers_in.dosages.push_back(dosages);
+
+        std::cerr << "DOSAGES @ " << position << " # " << dosages << std::endl;
+    }
+
+    std::cerr << "=================================================================" << std::endl << std::endl;
+}
+
+// ----------------------------------------------------------------------------
+// Method simulate_founders_freq()
+// ----------------------------------------------------------------------------
+
+template <typename founders_freq_t>
+inline void simulate_founders_freq(founders_freq_t & founders_freqs_in, uint32_t n_founders)
+{
+
+}
+
+// ============================================================================
+// Functions for F1 simulation
+// ============================================================================
 
 // ----------------------------------------------------------------------------
 // Function binom2()
@@ -168,235 +292,222 @@ void rand_f1(T1 n_samples, T2 n_ploidy, T3 n_crosses, F1 & f1s, URNG && g)
     }
 }
 
+// ============================================================================
+// App options
+// ============================================================================
+
 // ----------------------------------------------------------------------------
-// Function run()
+// Class simba_hap_options
 // ----------------------------------------------------------------------------
 
-void run(Options const & options)
+class simba_hap_options
 {
-    typedef std::pair<unsigned, unsigned> samples_comb_t;
-    typedef std::pair<unsigned, unsigned> haplos_comb_t;
-    typedef std::tuple<samples_comb_t, haplos_comb_t, haplos_comb_t> f1_comb_t;
-    typedef std::vector<char> genotype_t;
+public:
+    std::string vcf_filename_in;
 
-    // Open input file.
-    seqan::VcfFileIn vcf_in(seqan::toCString(options.vcf_filename_in));
+    uint32_t seed;
 
-    // Read header.
-    seqan::VcfHeader header_in;
-    seqan::readHeader(header_in, vcf_in);
-    auto sample_names = sampleNames(context(vcf_in));
-    auto n_samples = std::min(options.n_samples, static_cast<unsigned>(seqan::length(sample_names)));
+    uint32_t n_ploidy;
+    uint32_t n_samples;
+    uint32_t n_variants;
 
-    // Generate a random F1 population from input samples.
-    std::vector<f1_comb_t> f1s;
-    f1s.reserve(options.n_crosses);
-    std::mt19937 generator(options.seed);
-    rand_f1(n_samples, options.n_ploidy, options.n_crosses, f1s, generator);
-
-    // Open output file.
-//    seqan::VcfFileOut vcf_out(seqan::toCString(options.vcf_filename_out));
-    seqan::VcfFileOut vcf_out(std::cout, seqan::Vcf());
-    contigNames(context(vcf_out)) = contigNames(context(vcf_in));
-
-    seqan::VcfHeader header_out;
-    appendValue(header_out, seqan::VcfHeaderRecord("fileformat", "VCFv4.2"));
-    appendValue(header_out, seqan::VcfHeaderRecord("ID", "<ID=GT,Number=1,Type=String,Description=\"Genotype\">"));
-//    appendValue(header_out, seqan::VcfHeaderRecord("phasing", "partial"));
-
-    genotype_t genotype;
-    std::vector<genotype_t> sample_genotypes;
-    std::vector<genotype_t> f1_genotypes;
-    sample_genotypes.reserve(n_samples);
-    f1_genotypes.reserve(options.n_crosses);
-
-    // Write F1 cross names.
-//    for (auto const & f1 : f1s)
-//    {
-//        auto parents_f1 = std::get<0>(f1);
-//        auto haplos_p1 = std::get<1>(f1);
-//        auto haplos_p2 = std::get<2>(f1);
-
-//        std::string cross_name = sample_names[std::get<0>(parents_f1)] + "H" + std::get<0>(haplos_p1);
-//
-//            sample_names[std::get<0>(parents_f1)][std::get<1>(haplos_p1)] + "|" +
-//            sample_names[std::get<1>(parents_f1)][std::get<0>(haplos_p2)] + "|" +
-//            sample_names[std::get<1>(parents_f1)][std::get<1>(haplos_p2)])
-
-//    appendValue(sampleNames(context(vcf_out)), "NA00001");
-
-//        appendValue(sampleNames(context(vcf_out)),
-//            sample_names[std::get<0>(parents_f1)] [std::get<0>(haplos_p1)] + "|" +
-//            sample_names[std::get<0>(parents_f1)][std::get<1>(haplos_p1)] + "|" +
-//            sample_names[std::get<1>(parents_f1)][std::get<0>(haplos_p2)] + "|" +
-//            sample_names[std::get<1>(parents_f1)][std::get<1>(haplos_p2)])
-//    }
-
-//    writeHeader(vcf_out, header_out);
-
-    for (auto const & f1 : f1s)
-        std::cerr << "INFO: " << f1 << std::endl;
-
-    std::mt19937 phaser(options.seed);
-    std::mt19937 shuffler(options.seed);
-
-    seqan::VcfRecord record_in;
-    seqan::VcfRecord record_out;
-
-//    std::string genotype_out;
-//    const char * const genotype_delim = "|";
-
-    // Read the file recordwise.
-    while (!atEnd(vcf_in))
+    void parse(seqan::ArgumentParser const & parser)
     {
-        sample_genotypes.clear();
-        f1_genotypes.clear();
+        getOptionValue(seed, parser, "seed");
 
-        readRecord(record_in, vcf_in);
-
-        // Read all samples.
-        for (auto const & genotype_info : record_in.genotypeInfos)
-        {
-            genotype.clear();
-
-            // Read genotype string.
-            auto genotype_it = directionIterator(genotype_info, seqan::Input());
-            seqan::readUntil(genotype, genotype_it, seqan::EqualsChar<':'>());
-
-            // Convert genotype string to vector by removing slashes.
-            genotype.erase(std::remove(genotype.begin(), genotype.end(), '/'), genotype.end());
-
-            // Unknown genotypes are taken as hom ref.
-            if (genotype.size() == 1 & genotype[0] == '.')
-                genotype = {'0', '0', '0', '0'};
-
-            if (genotype.size() != options.n_ploidy)
-                throw seqan::ParseError("Wrong ploidy.");
-
-            sample_genotypes.push_back(genotype);
-        }
-
-        if (!options.input_phased)
-        {
-            // Convert genotypes to canonical form.
-//                std::sort(genotype.begin(), genotype.end(), std::greater<char>());
-
-            // Simulate random phases.
-            for (auto & genotype : sample_genotypes)
-                std::shuffle(genotype.begin(), genotype.end(), phaser);
-        }
-
-        // Compose F1s.
-        for (auto const & f1 : f1s)
-        {
-            auto parents_f1 = std::get<0>(f1);
-            auto haplos_p1 = std::get<1>(f1);
-            auto haplos_p2 = std::get<2>(f1);
-
-            f1_genotypes.push_back({
-                sample_genotypes[std::get<0>(parents_f1)][std::get<0>(haplos_p1)],
-                sample_genotypes[std::get<0>(parents_f1)][std::get<1>(haplos_p1)],
-                sample_genotypes[std::get<1>(parents_f1)][std::get<0>(haplos_p2)],
-                sample_genotypes[std::get<1>(parents_f1)][std::get<1>(haplos_p2)]
-            });
-        }
-
-        // Shuffle F1 phases.
-        if (!options.output_phased)
-        {
-            for (auto & genotype : f1_genotypes)
-                std::shuffle(genotype.begin(), genotype.end(), shuffler);
-        }
-
-        // Write all F1 crosses.
-        record_out.rID = record_in.rID;
-        record_out.beginPos = record_in.beginPos;
-        record_out.id = record_in.id;
-        record_out.ref = record_in.ref;
-        record_out.alt = record_in.alt;
-        record_out.filter = record_in.filter;
-        record_out.info = "";
-        record_out.format = "GT";
-//        for (auto const & genotype : f1_genotypes)
-//        {
-//            auto genotype_info = boost::algorithm::join(genotype, "|");
-//            appendValue(record_out.genotypeInfos, genotype_info);
-//        }
-
-//        writeRecord(vcf_out, record_out);
-
-        for (auto const & genotype : f1_genotypes)
-            std::copy(genotype.begin(), genotype.end(), std::ostream_iterator<char>(std::cout, "\t"));
-        std::cout << std::endl;
+        getOptionValue(vcf_filename_in, parser, "vcf");
+        getOptionValue(n_ploidy, parser, "ploidy");
+        getOptionValue(n_samples, parser, "samples");
+        getOptionValue(n_variants, parser, "variants");
     }
-}
+
+     simba_hap_options():
+        seed(0),
+        n_ploidy(4),
+        n_samples(std::numeric_limits<uint32_t>::max()),
+        n_variants(std::numeric_limits<uint32_t>::max())
+    {}
+};
 
 // ----------------------------------------------------------------------------
-// Function setupArgumentParser()
+// Function setup_argument_parser()
 // ----------------------------------------------------------------------------
 
-void setupArgumentParser(seqan::ArgumentParser & parser, Options const & options)
+void setup_argument_parser(seqan::ArgumentParser & parser, simba_hap_options const & options)
 {
-    setAppName(parser, "vcf_sim");
-    setShortDescription(parser, "VCF Simulator");
+    setAppName(parser, "SimBA-hap");
+    setShortDescription(parser, "Haplotypes simulator");
     setCategory(parser, "Simulation");
 
     setVersion(parser, SEQAN_APP_VERSION " [" SEQAN_REVISION "]");
     setDate(parser, SEQAN_DATE);
 
-    addUsageLine(parser, "[\\fIOPTIONS\\fP] <\\fIVCF FILE IN\\fP> <\\fIVCF FILE OUT\\fP>");
-
-    addArgument(parser, seqan::ArgParseArgument(seqan::ArgParseArgument::INPUT_FILE));
-    setValidValues(parser, 0, seqan::VcfFileIn::getFileExtensions());
-
-//    addArgument(parser, seqan::ArgParseArgument(seqan::ArgParseArgument::OUTPUT_FILE));
-//    setValidValues(parser, 1, seqan::VcfFileOut::getFileExtensions());
+    addUsageLine(parser, "[\\fIOPTIONS\\fP]");
 
     addOption(parser, seqan::ArgParseOption("g", "seed", "Initial seed for pseudo-random number generation.",
                                             seqan::ArgParseOption::INTEGER));
     setMinValue(parser, "seed", "0");
     setDefaultValue(parser, "seed", options.seed);
 
-    addOption(parser, seqan::ArgParseOption("s", "samples", "Number of input samples to consider. Default: all samples in the input VCF file.",
+    addOption(parser, seqan::ArgParseOption("f", "vcf", "Input VCF file.", seqan::ArgParseOption::INPUT_FILE));
+    setValidValues(parser, "vcf", seqan::VcfFileIn::getFileExtensions());
+
+    addOption(parser, seqan::ArgParseOption("p", "ploidy", "Organism ploidy.",
                                             seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "samples", "2");
+    setMinValue(parser, "ploidy", "2");
+    setMaxValue(parser, "ploidy", "8");
+
+    addOption(parser, seqan::ArgParseOption("s", "samples", "Number of input samples to use. Default: all samples in the input VCF file.",
+                                            seqan::ArgParseOption::INTEGER));
+    setMinValue(parser, "samples", "1");
     setMaxValue(parser, "samples", "1000");
 
-    addOption(parser, seqan::ArgParseOption("c", "crosses", "Number of F1 crosses to simulate.",
+    addOption(parser, seqan::ArgParseOption("v", "variants", "Number of variants to use. Default: all variants in the input VCF file.",
                                             seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "crosses", "1");
-    setMaxValue(parser, "crosses", "1000");
-    setDefaultValue(parser, "crosses", options.n_crosses);
-
-    addOption(parser, seqan::ArgParseOption("ip", "input-phased", "Input is already phased."));
-    addOption(parser, seqan::ArgParseOption("op", "output-phased", "Output is kept phased."));
+    setMinValue(parser, "variants", "1");
 }
 
+// ============================================================================
+// App
+// ============================================================================
+
 // ----------------------------------------------------------------------------
-// Function parseCommandLine()
+// Class simba_hap
 // ----------------------------------------------------------------------------
 
-seqan::ArgumentParser::ParseResult
-parseCommandLine(Options & options, seqan::ArgumentParser & parser, int argc, char const ** argv)
+struct simba_hap
 {
-    seqan::ArgumentParser::ParseResult res = parse(parser, argc, argv);
+    // Input.
+    std::vector<uint32_t> founders_freqs_in;
+    markers markers_in;
 
-    if (res != seqan::ArgumentParser::PARSE_OK)
-        return res;
+    // Output.
+    std::vector<std::vector<bool>> founder_haplotypes_out; // founder_haplotypes_out[m] = [ h_i[m] == alt ].
+    std::vector<std::vector<uint32_t>> sample_haplotypes_out; // sample_haplotypes_out[n][p] = i
 
-    // Parse vcf input filename.
-    getArgumentValue(options.vcf_filename_in, parser, 0);
-//    getArgumentValue(options.vcf_filename_out, parser, 1);
+    void run(simba_hap_options const & options);
+};
 
-    getOptionValue(options.seed, parser, "seed");
-    getOptionValue(options.n_samples, parser, "samples");
-    getOptionValue(options.n_crosses, parser, "crosses");
+// ----------------------------------------------------------------------------
+// Method simba_hap::run()
+// ----------------------------------------------------------------------------
 
-    getOptionValue(options.input_phased, parser, "input-phased");
-    getOptionValue(options.output_phased, parser, "output-phased");
+void simba_hap::run(simba_hap_options const & options)
+{
+//    simulate_founders_freqs(founders_freqs_in, options.n_founders);
 
-    return seqan::ArgumentParser::PARSE_OK;
+    if (!options.vcf_filename_in.empty())
+        read_markers(markers_in, options.n_ploidy, options.vcf_filename_in);
+//    else
+//        simulate_markers(markers_in, options.n_ploidy, options.n_samples, options.n_variants);
 }
+
+
+//void simba_hap::run(simba_hap_options const & options)
+//{
+//    typedef std::pair<unsigned, unsigned> samples_comb_t;
+//    typedef std::pair<unsigned, unsigned> haplos_comb_t;
+//    typedef std::tuple<samples_comb_t, haplos_comb_t, haplos_comb_t> f1_comb_t;
+//    typedef std::vector<char> genotype_t;
+//
+//    // Open input file.
+//    seqan::VcfFileIn vcf_in(seqan::toCString(options.vcf_filename_in));
+//
+//    // Read header.
+//    seqan::VcfHeader header_in;
+//    seqan::readHeader(header_in, vcf_in);
+//    auto sample_names = sampleNames(context(vcf_in));
+//    auto n_samples = std::min(options.n_samples, static_cast<unsigned>(seqan::length(sample_names)));
+//
+//    // Generate a random F1 population from input samples.
+//    std::vector<f1_comb_t> f1s;
+//    f1s.reserve(options.n_crosses);
+//    std::mt19937 generator(options.seed);
+//    rand_f1(n_samples, options.n_ploidy, options.n_crosses, f1s, generator);
+//
+//    genotype_t genotype;
+//    std::vector<genotype_t> sample_genotypes;
+//    std::vector<genotype_t> f1_genotypes;
+//    sample_genotypes.reserve(n_samples);
+//    f1_genotypes.reserve(options.n_crosses);
+//
+//    for (auto const & f1 : f1s)
+//        std::cerr << "INFO: " << f1 << std::endl;
+//
+//    std::mt19937 phaser(options.seed);
+//    std::mt19937 shuffler(options.seed);
+//
+//    seqan::VcfRecord record_in;
+//    seqan::VcfRecord record_out;
+//
+//    // Read the file recordwise.
+//    while (!atEnd(vcf_in))
+//    {
+//        sample_genotypes.clear();
+//        f1_genotypes.clear();
+//
+//        readRecord(record_in, vcf_in);
+//
+//        // Read all samples.
+//        for (auto const & genotype_info : record_in.genotypeInfos)
+//        {
+//            genotype.clear();
+//
+//            // Read genotype string.
+//            auto genotype_it = directionIterator(genotype_info, seqan::Input());
+//            seqan::readUntil(genotype, genotype_it, seqan::EqualsChar<':'>());
+//
+//            // Convert genotype string to vector by removing slashes.
+//            genotype.erase(std::remove(genotype.begin(), genotype.end(), '/'), genotype.end());
+//
+//            // Unknown genotypes are taken as hom ref.
+//            if (is_unknown(genotype))
+//                genotype = {'0', '0', '0', '0'};
+//
+//            if (genotype.size() != options.n_ploidy)
+//                throw seqan::ParseError("Wrong ploidy.");
+//
+//            sample_genotypes.push_back(genotype);
+//        }
+//
+//        if (!options.input_phased)
+//        {
+//            // Convert genotypes to canonical form.
+//            std::sort(genotype.begin(), genotype.end(), std::greater<char>());
+//
+//            // Simulate random phases.
+//            for (auto & genotype : sample_genotypes)
+//                std::shuffle(genotype.begin(), genotype.end(), phaser);
+//        }
+//
+//        // Compose F1s.
+//        for (auto const & f1 : f1s)
+//        {
+//            auto parents_f1 = std::get<0>(f1);
+//            auto haplos_p1 = std::get<1>(f1);
+//            auto haplos_p2 = std::get<2>(f1);
+//
+//            f1_genotypes.push_back({
+//                sample_genotypes[std::get<0>(parents_f1)][std::get<0>(haplos_p1)],
+//                sample_genotypes[std::get<0>(parents_f1)][std::get<1>(haplos_p1)],
+//                sample_genotypes[std::get<1>(parents_f1)][std::get<0>(haplos_p2)],
+//                sample_genotypes[std::get<1>(parents_f1)][std::get<1>(haplos_p2)]
+//            });
+//        }
+//
+//        // Shuffle F1 phases.
+//        if (!options.output_phased)
+//        {
+//            for (auto & genotype : f1_genotypes)
+//                std::shuffle(genotype.begin(), genotype.end(), shuffler);
+//        }
+//
+//        // Output F1 genotypes.
+//        for (auto const & genotype : f1_genotypes)
+//            std::copy(genotype.begin(), genotype.end(), std::ostream_iterator<char>(std::cout, "\t"));
+//        std::cout << std::endl;
+//    }
+//}
 
 // ----------------------------------------------------------------------------
 // Function main()
@@ -405,17 +516,20 @@ parseCommandLine(Options & options, seqan::ArgumentParser & parser, int argc, ch
 int main(int argc, char const ** argv)
 {
     seqan::ArgumentParser parser;
-    Options options;
-    setupArgumentParser(parser, options);
+    simba_hap app;
+    simba_hap_options options;
 
-    seqan::ArgumentParser::ParseResult res = parseCommandLine(options, parser, argc, argv);
+    setup_argument_parser(parser, options);
+    seqan::ArgumentParser::ParseResult res = parse(parser, argc, argv);
 
     if (res != seqan::ArgumentParser::PARSE_OK)
         return res;
 
+    options.parse(parser);
+
     try
     {
-        run(options);
+        app.run(options);
     }
     catch (seqan::Exception const & e)
     {
@@ -425,4 +539,3 @@ int main(int argc, char const ** argv)
 
     return 0;
 }
-
