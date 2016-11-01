@@ -1,97 +1,63 @@
 # ===========================================================================
-#                  SeqAn - The Library for Sequence Analysis
-# ===========================================================================
-# File: /apps/vcf_sim/CMakeLists.txt
-#
-# CMakeLists.txt file for vcf_sim.
+#                                 SimBA-hap
 # ===========================================================================
 
 cmake_minimum_required (VERSION 3.0.0)
-project (seqan_apps_vcf_sim CXX)
-message (STATUS "Configuring apps/vcf_sim")
-
+project (SimBA-hap CXX)
 set (SEQAN_APP_VERSION "0.0.1")
 
 # ----------------------------------------------------------------------------
-# Dependencies
+# Project Configuration
 # ----------------------------------------------------------------------------
 
-# Search dependencies.
-find_package (ZLIB)
-find_package (Boost REQUIRED)
-find_package (SeqAn REQUIRED)
-
-if (NOT ZLIB_FOUND)
-  message (STATUS "  Zlib not found: building vcf_sim without gzipped input/output.")
+if (NOT CMAKE_BUILD_TYPE)
+    set (CMAKE_BUILD_TYPE "Release" CACHE STRING "CMake release mode." FORCE)
 endif ()
-if (NOT Boost_FOUND)
-  message (STATUS "  Boost not found: not building vcf_sim.")
-endif ()
-#if (NOT SeqAn_FOUND)
-#  message (STATUS "  SeqAn not found: not building vcf_sim.")
-#endif ()
+
+# Set output binary directory.
+set (EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
 # ----------------------------------------------------------------------------
-# Build Setup
+# Load SeqAn Build System
 # ----------------------------------------------------------------------------
 
-# Add include directories.
-include_directories (${SEQAN_INCLUDE_DIRS})
-include_directories (SYSTEM ${Boost_INCLUDE_DIRS})
+message (STATUS "Configuring SeqAn")
+set (CMAKE_INCLUDE_PATH
+    ${CMAKE_SOURCE_DIR}/../seqan/include
+    ${CMAKE_INCLUDE_PATH})
+set (CMAKE_MODULE_PATH
+#    ${CMAKE_SOURCE_DIR}/../seqan/util/cmake/FindTBB
+    ${CMAKE_SOURCE_DIR}/../seqan/util/cmake
+    ${CMAKE_MODULE_PATH})
 
-# Add definitions set by find_package (SeqAn).
-add_definitions (${SEQAN_DEFINITIONS})
-
-# Add definitions set by the build system.
-add_definitions (-DSEQAN_APP_VERSION="${SEQAN_APP_VERSION}")
-add_definitions (-DSEQAN_REVISION="${SEQAN_REVISION}")
-add_definitions (-DSEQAN_DATE="${SEQAN_DATE}")
-
-# Update the list of file names below if you add source files to your application.
-add_executable (vcf_sim vcf_sim.cpp)
-add_executable (vcf_eval vcf_eval.cpp)
-
-# Add dependencies found by find_package (SeqAn).
-target_link_libraries (vcf_sim ${Boost_LIBRARIES} ${SEQAN_LIBRARIES})
-
-# Add CXX flags found by find_package (SeqAn).
-set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEQAN_CXX_FLAGS}")
+include (SeqAnContribs)
+include (SeqAnBuildSystem)
+set (SEQAN_ROOT_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../seqan/" CACHE INTERNAL "Root source directory." FORCE)
+seqan_build_system_init ()
+seqan_get_repository_info ()
+seqan_setup_library ()
+include (package)
 
 # ----------------------------------------------------------------------------
-# Installation
+# Include Sources Directory
 # ----------------------------------------------------------------------------
 
-# Set variables for installing, depending on the selected build type.
-if (NOT SEQAN_PREFIX_SHARE_DOC)
-  seqan_setup_install_vars (vcf_sim)
-endif (NOT SEQAN_PREFIX_SHARE_DOC)
-
-# Install vcf_sim in ${PREFIX}/bin directory
-install (TARGETS vcf_sim vcf_eval
-         DESTINATION bin)
-
-# Install non-binary files for the package to "." for app builds and
-# ${PREFIX}/share/doc/vcf_sim for SeqAn release builds.
-install (FILES LICENSE
-               README
-         DESTINATION ${SEQAN_PREFIX_SHARE_DOC})
+add_subdirectory (src)
 
 # ----------------------------------------------------------------------------
-# App Test
+# CPack Configuration
 # ----------------------------------------------------------------------------
 
-#seqan_add_app_test (vcf_sim)
+set (CPACK_PACKAGE_NAME "SimBA-hap")
+set (CPACK_PACKAGE_DESCRIPTION_SUMMARY "Phasing")
+set (CPACK_DEBIAN_PACKAGE_MAINTAINER "Enrico Siragusa <esiragu@us.ibm.com>")
+set (CPACK_PACKAGE_VENDOR "Enrico Siragusa <esiragu@us.ibm.com>")
 
-# ----------------------------------------------------------------------------
-# CPack Install
-# ----------------------------------------------------------------------------
+set (CPACK_PACKAGE_VERSION "0.0.1")
+set (CPACK_PACKAGE_VERSION_MAJOR "0")
+set (CPACK_PACKAGE_VERSION_MINOR "0")
+set (CPACK_PACKAGE_VERSION_PATCH "1")
 
-if (SEQAN_BUILD_SYSTEM STREQUAL "APP:vcf_sim")
-  set (CPACK_PACKAGE_NAME "vcf_sim")
-  set (CPACK_PACKAGE_DESCRIPTION_SUMMARY "vcf_sim")
-  set (CPACK_DEBIAN_PACKAGE_MAINTAINER "Enrico Siragusa <esiragu@us.ibm.com>")
-  set (CPACK_PACKAGE_VENDOR "Enrico Siragusa <esiragu@us.ibm.com>")
+set (CPACK_GENERATOR "TGZ")
 
-  seqan_configure_cpack_app (vcf_sim "vcf_sim")
-endif (SEQAN_BUILD_SYSTEM STREQUAL "APP:vcf_sim")
-
+include (CPack)
