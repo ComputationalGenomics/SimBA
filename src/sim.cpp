@@ -224,25 +224,43 @@ typedef std::vector<uint32_t> founders;
 // Method simulate_founders_freqs()
 // ----------------------------------------------------------------------------
 
-template <typename founders_freq_t>
-inline void simulate_founders_freqs(founders_freq_t & founders_freqs, uint32_t n_founders, uint32_t n_samples, uint32_t seed)
+template <typename founders_freq_t, typename generator_t>
+inline void simulate_founders_freqs(founders_freq_t & founders_freqs, uint32_t n_founders, uint32_t n_samples, uint32_t n_ploidy, generator_t && generator)
 {
     SEQAN_ASSERT_GT(n_samples, 0u);
-    SEQAN_ASSERT_GT(n_founders, 0u);
+    SEQAN_ASSERT_GEQ(n_samples, n_founders);
 
-//    std::random_device rd;
-    std::mt19937 generator(seed);
-    std::uniform_int_distribution<uint32_t> distribution(0u, n_founders - 1);
-//    std::normal_distribution<uint32_t> distribution(0u, n_founders - 1);
+    std::uniform_int_distribution<uint32_t> distribution(1u, n_founders - 1);
+//    std::normal_distribution<uint32_t> distribution(1u, n_founders - 1);
 
-    founders_freqs.resize(n_founders, 0u);
+    founders_freqs.resize(n_founders, 1u);
 
-    for (uint32_t i = 0; i < n_samples; i++)
+    for (uint32_t i = 0; i < n_samples * n_ploidy - n_founders; i++)
         founders_freqs[distribution(generator)]++;
 
-    SEQAN_ASSERT_EQ(std::accumulate(founders_freqs.begin(), founders_freqs.end(), 0u), n_samples);
-
     std::cerr << "FOUNDERS: " << founders_freqs << std::endl;
+    std::cerr << "=================================================================" << std::endl << std::endl;
+}
+
+// ----------------------------------------------------------------------------
+// Method simulate_founders_assignment()
+// ----------------------------------------------------------------------------
+
+template <typename haplotypes_t, typename founders_freq_t, typename generator_t>
+inline void simulate_founders_assignment(haplotypes_t & haplotypes, founders_freq_t const & founders_freqs, uint32_t n_samples, uint32_t n_ploidy, generator_t && generator)
+{
+    SEQAN_ASSERT_EQ(std::accumulate(founders_freqs.begin(), founders_freqs.end(), 0u), n_samples * n_ploidy);
+
+    haplotypes.resize(n_ploidy * n_samples);
+
+    auto haplotypes_it = haplotypes.begin();
+    for (auto founders_freqs_it = founders_freqs.begin(); founders_freqs_it != founders_freqs.end(); ++founders_freqs_it)
+        haplotypes_it = std::fill_n(haplotypes_it, *founders_freqs_it, founders_freqs_it - founders_freqs.begin());
+    SEQAN_ASSERT(haplotypes_it == haplotypes.end());
+
+    std::shuffle(haplotypes.begin(), haplotypes.end(), generator);
+
+    std::cerr << "HAPLOTYPES: " << haplotypes << std::endl;
     std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
@@ -255,7 +273,8 @@ struct population
     typedef std::vector<bool> marker_t;
 
     std::vector<marker_t> founders;                 // founders[m][f] == ALT
-    std::vector<std::vector<uint32_t>> haplotypes;  // haplotypes[n][p] = i
+//    std::vector<std::vector<uint32_t>> haplotypes;  // haplotypes[n][p] = i
+    std::vector<uint32_t> haplotypes;
 };
 
 // ============================================================================
@@ -367,7 +386,10 @@ struct simba_hap
 
 void simba_hap::run(simba_hap_options const & options)
 {
-    simulate_founders_freqs(founders_in, options.n_founders, options.n_samples, options.seed);
+    std::mt19937 generator(options.seed);
+
+    simulate_founders_freqs(founders_in, options.n_founders, options.n_samples, options.n_ploidy, generator);
+    simulate_founders_assignment(pop_out.haplotypes, founders_in, options.n_samples, options.n_ploidy, generator);
 
     if (!options.vcf_filename_in.empty())
         read_markers(markers_in, options.n_ploidy, options.vcf_filename_in);
