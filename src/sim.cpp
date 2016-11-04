@@ -145,13 +145,16 @@ struct markers
     std::vector<position_t> positions; // positions[m] = (chr, pos)
     std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
     std::vector<dosages_t> dosages;    // dosages[m] = [f(0),f(1),...,f(p)]
+
+    inline void read(uint32_t n_ploidy, std::string const & vcf_filename_in);
+    inline void simulate(uint32_t n_ploidy, uint32_t n_samples, uint32_t n_markers);
 };
 
 // ----------------------------------------------------------------------------
-// Method read_markers()
+// Method markers::read()
 // ----------------------------------------------------------------------------
 
-inline void read_markers(markers & markers_in, uint32_t n_ploidy, std::string const & vcf_filename_in)
+inline void markers::read(uint32_t n_ploidy, std::string const & vcf_filename_in)
 {
     typedef markers::position_t position_t;
     typedef markers::alleles_t alleles_t;
@@ -204,9 +207,9 @@ inline void read_markers(markers & markers_in, uint32_t n_ploidy, std::string co
             dosages[ref_dosage(genotype)]++;
         }
 
-        markers_in.positions.push_back(position);
-        markers_in.alleles.push_back(alleles);
-        markers_in.dosages.push_back(dosages);
+        this->positions.push_back(position);
+        this->alleles.push_back(alleles);
+        this->dosages.push_back(dosages);
 
         std::cerr << "DOSAGES @ " << position << " # " << dosages << std::endl;
     }
@@ -214,44 +217,122 @@ inline void read_markers(markers & markers_in, uint32_t n_ploidy, std::string co
     std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
-// ============================================================================
-// Founders
-// ============================================================================
-
-typedef std::vector<uint32_t> founders;
-
 // ----------------------------------------------------------------------------
-// Method simulate_founders_freqs()
+// Method markers::simulate()
 // ----------------------------------------------------------------------------
 
-template <typename founders_freq_t, typename generator_t>
-inline void simulate_founders_freqs(founders_freq_t & founders_freqs, uint32_t n_founders, uint32_t n_samples, uint32_t n_ploidy, generator_t && generator)
+inline void markers::simulate(uint32_t n_ploidy, uint32_t n_samples, uint32_t n_markers)
+{
+    seqan::ignoreUnusedVariableWarning(n_ploidy);
+    seqan::ignoreUnusedVariableWarning(n_samples);
+    seqan::ignoreUnusedVariableWarning(n_markers);
+}
+
+// ============================================================================
+// Population
+// ============================================================================
+
+struct population
+{
+public:
+    template <typename generator_t>
+    inline void simulate(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers, generator_t && generator);
+
+    inline void write(std::string const & vcf_filename_out);
+
+    population() :
+        n_founders(),
+        n_samples(),
+        n_ploidy()
+    {}
+
+private:
+//    typedef std::vector<bool> marker_t;
+
+//    std::vector<marker_t> founders_alts;            // founders[m][f] == ALT
+//    std::vector<std::vector<uint32_t>> haplotypes;  // haplotypes[n][p] = i
+    std::vector<bool> founders_alts;
+    std::vector<uint32_t> haplotypes;
+    std::vector<uint32_t> founders_freqs;
+
+    uint32_t n_founders;
+    uint32_t n_samples;
+    uint32_t n_markers;
+    uint32_t n_ploidy;
+
+    inline void resize(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers);
+
+    template <typename generator_t>
+    inline void simulate_founders_freqs(generator_t && generator);
+
+    template <typename generator_t>
+    inline void simulate_founders_alts(generator_t && generator);
+
+    template <typename generator_t>
+    inline void simulate_haplotypes(generator_t && generator);
+};
+
+// ----------------------------------------------------------------------------
+// Method population::simulate()
+// ----------------------------------------------------------------------------
+
+template <typename generator_t>
+inline void population::simulate(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers, generator_t && generator)
+{
+    resize(n_ploidy, n_founders, n_samples, n_markers);
+    simulate_founders_freqs(generator);
+    simulate_haplotypes(generator);
+    simulate_founders_alts(generator);
+}
+
+// ----------------------------------------------------------------------------
+// Method population::resize()
+// ----------------------------------------------------------------------------
+
+inline void population::resize(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers)
 {
     SEQAN_ASSERT_GT(n_samples, 0u);
-    SEQAN_ASSERT_GEQ(n_samples, n_founders);
+    SEQAN_ASSERT_LEQ(n_founders, n_samples);
+    SEQAN_ASSERT_GT(n_markers, 0u);
+    SEQAN_ASSERT_GT(n_ploidy, 0u);
+
+    this->n_ploidy = n_ploidy;
+    this->n_founders = n_founders;
+    this->n_samples = n_samples;
+    this->n_markers = n_markers;
+
+    founders_freqs.resize(n_founders, 1u);
+    founders_alts.resize(n_founders * n_markers, false);
+    haplotypes.resize(n_ploidy * n_samples);
+}
+
+// ----------------------------------------------------------------------------
+// Method population::simulate_founders_freqs()
+// ----------------------------------------------------------------------------
+
+template <typename generator_t>
+inline void population::simulate_founders_freqs(generator_t && generator)
+{
+    SEQAN_ASSERT_EQ(founders_freqs.size(), n_founders);
 
     std::uniform_int_distribution<uint32_t> distribution(1u, n_founders - 1);
 //    std::normal_distribution<uint32_t> distribution(1u, n_founders - 1);
-
-    founders_freqs.resize(n_founders, 1u);
 
     for (uint32_t i = 0; i < n_samples * n_ploidy - n_founders; i++)
         founders_freqs[distribution(generator)]++;
 
     std::cerr << "FOUNDERS: " << founders_freqs << std::endl;
-    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
-// Method simulate_founders_assignment()
+// Method population::simulate_haplotypes()
 // ----------------------------------------------------------------------------
 
-template <typename haplotypes_t, typename founders_freq_t, typename generator_t>
-inline void simulate_founders_assignment(haplotypes_t & haplotypes, founders_freq_t const & founders_freqs, uint32_t n_samples, uint32_t n_ploidy, generator_t && generator)
+template <typename generator_t>
+inline void population::simulate_haplotypes(generator_t && generator)
 {
+    SEQAN_ASSERT_EQ(haplotypes.size(), n_ploidy * n_samples);
     SEQAN_ASSERT_EQ(std::accumulate(founders_freqs.begin(), founders_freqs.end(), 0u), n_samples * n_ploidy);
-
-    haplotypes.resize(n_ploidy * n_samples);
 
     auto haplotypes_it = haplotypes.begin();
     for (auto founders_freqs_it = founders_freqs.begin(); founders_freqs_it != founders_freqs.end(); ++founders_freqs_it)
@@ -261,21 +342,33 @@ inline void simulate_founders_assignment(haplotypes_t & haplotypes, founders_fre
     std::shuffle(haplotypes.begin(), haplotypes.end(), generator);
 
     std::cerr << "HAPLOTYPES: " << haplotypes << std::endl;
-    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
-// ============================================================================
-// Population
-// ============================================================================
+// ----------------------------------------------------------------------------
+// Method population::simulate_founders_alts()
+// ----------------------------------------------------------------------------
 
-struct population
+template <typename generator_t>
+inline void population::simulate_founders_alts(generator_t && generator)
 {
-    typedef std::vector<bool> marker_t;
+    std::bernoulli_distribution distribution;
 
-    std::vector<marker_t> founders;                 // founders[m][f] == ALT
-//    std::vector<std::vector<uint32_t>> haplotypes;  // haplotypes[n][p] = i
-    std::vector<uint32_t> haplotypes;
-};
+//    std::generate(founders_alts.begin(), founders_alts.end(), generator);
+    std::generate(founders_alts.begin(), founders_alts.end(), [&distribution, &generator]()
+    {
+        return distribution(generator);
+    });
+
+    std::cerr << "ALLELES: " << founders_alts << std::endl;
+}
+
+// ----------------------------------------------------------------------------
+// Method population::write()
+// ----------------------------------------------------------------------------
+
+inline void population::write(std::string const & vcf_filename_out)
+{
+}
 
 // ============================================================================
 // App options
@@ -313,7 +406,7 @@ public:
         n_ploidy(4),
         n_founders(1),
         n_samples(1),
-        n_markers(std::numeric_limits<uint32_t>::max())
+        n_markers(1)
     {}
 };
 
@@ -371,7 +464,6 @@ void setup_argument_parser(seqan::ArgumentParser & parser, simba_hap_options con
 struct simba_hap
 {
     // Input.
-    founders founders_in;
     markers markers_in;
 
     // Output.
@@ -388,13 +480,19 @@ void simba_hap::run(simba_hap_options const & options)
 {
     std::mt19937 generator(options.seed);
 
-    simulate_founders_freqs(founders_in, options.n_founders, options.n_samples, options.n_ploidy, generator);
-    simulate_founders_assignment(pop_out.haplotypes, founders_in, options.n_samples, options.n_ploidy, generator);
+    uint32_t n_markers = options.n_markers;
 
-    if (!options.vcf_filename_in.empty())
-        read_markers(markers_in, options.n_ploidy, options.vcf_filename_in);
-//    else
-//        simulate_markers(markers_in, options.n_ploidy, options.n_samples, options.n_markers);
+    if (options.vcf_filename_in.empty())
+    {
+        markers_in.simulate(options.n_ploidy, options.n_samples, options.n_markers);
+    }
+    else
+    {
+        markers_in.read(options.n_ploidy, options.vcf_filename_in);
+        n_markers = markers_in.dosages.size();
+    }
+
+    pop_out.simulate(options.n_ploidy, options.n_founders, options.n_samples, n_markers, generator);
 }
 
 // ----------------------------------------------------------------------------
