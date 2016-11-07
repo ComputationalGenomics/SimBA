@@ -7,6 +7,59 @@
 #include <seqan/arg_parse.h>
 #include <seqan/vcf_io.h>
 
+#include <boost/multi_array.hpp>
+
+// ============================================================================
+// View
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Class reference_view
+// ----------------------------------------------------------------------------
+
+template <class T>
+class reference_view
+{
+    T* value_;
+
+public:
+    reference_view() :
+        value_()
+    {}
+
+    reference_view(T & value) :
+        value_(std::addressof(value))
+    {}
+
+    T & get() const
+    {
+        SEQAN_ASSERT(value_);
+        return *value_;
+    }
+
+    operator T & () const
+    {
+        SEQAN_ASSERT(value_);
+        return *value_;
+    }
+
+    reference_view<T> operator=(T & value)
+    {
+        value_ = std::addressof(value);
+        return *this;
+    }
+};
+
+// ----------------------------------------------------------------------------
+// Function view
+// ----------------------------------------------------------------------------
+
+template <class T>
+inline reference_view<T> view(T & t)
+{
+    return reference_view<T>(t);
+}
+
 // ============================================================================
 // Extensions to STL
 // ============================================================================
@@ -17,6 +70,13 @@
 
 namespace std
 {
+template <typename T>
+std::ostream& operator<<(std::ostream & s, reference_view<T> const & v)
+{
+    s << v.get();
+    return s;
+}
+
 template <typename T1, typename T2>
 std::ostream& operator<<(std::ostream & s, std::pair<T1, T2> const & p)
 {
@@ -24,18 +84,31 @@ std::ostream& operator<<(std::ostream & s, std::pair<T1, T2> const & p)
     return s;
 }
 
-//template <typename T1, typename T2, typename T3>
-//std::ostream& operator<<(std::ostream & s, std::tuple<T1, T2, T3> const & t)
-//{
-//    s << '{' << std::get<0>(t) << "; " << std::get<1>(t) << "; " << std::get<2>(t) << '}';
-//    return s;
-//}
-
 template <typename T>
 std::ostream& operator<<(std::ostream & s, std::vector<T> const & v)
 {
     s << "[ ";
     std::copy(v.begin(), v.end(), std::ostream_iterator<T>(s, " "));
+    s << "]";
+    return s;
+}
+
+template <typename T, size_t SIZE>
+std::ostream& operator<<(std::ostream & s, std::array<T, SIZE> const & v)
+{
+    s << "[ ";
+    std::copy(v.begin(), v.end(), std::ostream_iterator<T>(s, " "));
+    s << "]";
+    return s;
+}
+}
+
+namespace boost {
+template <typename T, size_t SIZE>
+std::ostream& operator<<(std::ostream & s, boost::multi_array<T, SIZE> const & m)
+{
+    s << "[ ";
+    std::copy(m.data(), m.data() + m.num_elements(), std::ostream_iterator<T>(s, " "));
     s << "]";
     return s;
 }
@@ -90,13 +163,15 @@ inline void read_genotype(genotype_t & genotype, genotype_info_t const & genotyp
 template <typename genotype_info_t, typename genotype_t>
 inline void write_genotype(genotype_info_t & genotype_info, genotype_t const & genotype)
 {
-//    auto genotype_it = directionIterator(genotype_info, seqan::Output());
-//    seqan::readUntil(genotype, genotype_it, seqan::EqualsChar<':'>());
+    seqan::clear(genotype_info);
 
-    // Interleave with pipes.
-//    genotype.erase(std::remove(genotype.begin(), genotype.end(), '|'), genotype.end());
+    std::for_each(genotype.begin(), genotype.end() - 1, [&genotype_info](auto allele)
+    {
+        seqan::appendNumber(genotype_info, allele.get());
+        seqan::appendValue(genotype_info, '|');
+    });
 
-    genotype_info = genotype;
+    seqan::appendNumber(genotype_info, genotype.back().get());
 }
 
 // ----------------------------------------------------------------------------
@@ -153,6 +228,11 @@ inline bool is_unknown(genotype_t const & genotype)
 // Markers
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// Class markers
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
 struct markers
 {
     typedef std::pair<uint32_t, uint32_t> position_t;
@@ -164,15 +244,18 @@ struct markers
     std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
     std::vector<dosages_t> dosages;    // dosages[m] = [f(0),f(1),...,f(p)]
 
-    inline void read(uint32_t n_ploidy, std::string const & vcf_filename_in);
-    inline void simulate(uint32_t n_ploidy, uint32_t n_samples, uint32_t n_markers);
+    inline void read(std::string const & vcf_filename_in);
+
+    template <typename generator_t>
+    inline void simulate(uint32_t n_samples, uint32_t n_markers, generator_t && generator);
 };
 
 // ----------------------------------------------------------------------------
 // Method markers::read()
 // ----------------------------------------------------------------------------
 
-inline void markers::read(uint32_t n_ploidy, std::string const & vcf_filename_in)
+template <uint8_t n_ploidy>
+inline void markers<n_ploidy>::read(std::string const & vcf_filename_in)
 {
     typedef markers::position_t position_t;
     typedef markers::alleles_t alleles_t;
@@ -239,46 +322,58 @@ inline void markers::read(uint32_t n_ploidy, std::string const & vcf_filename_in
 // Method markers::simulate()
 // ----------------------------------------------------------------------------
 
-inline void markers::simulate(uint32_t n_ploidy, uint32_t n_samples, uint32_t n_markers)
+template <uint8_t n_ploidy> template <typename generator_t>
+inline void markers<n_ploidy>::simulate(uint32_t n_samples, uint32_t n_markers, generator_t && generator)
 {
-    seqan::ignoreUnusedVariableWarning(n_ploidy);
     seqan::ignoreUnusedVariableWarning(n_samples);
     seqan::ignoreUnusedVariableWarning(n_markers);
+    seqan::ignoreUnusedVariableWarning(generator);
 }
 
 // ============================================================================
 // Population
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// Class population
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
 struct population
 {
-public:
-    template <typename generator_t>
-    inline void simulate(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers, generator_t && generator);
+private:
+    typedef std::vector<uint16_t> founder_alt_t;
+    typedef std::array<reference_view<uint16_t>, n_ploidy> sample_alt_t;
+    typedef std::vector<sample_alt_t> samples_alt_t;
 
-    inline void write(markers const & markers_in, std::string const & vcf_filename_out);
+public:
+    typedef std::vector<uint32_t> founders_freqs_t;         // [founder]
+    typedef boost::multi_array<uint32_t, 2> founders_map_t; // [sample][haplotype]
+    typedef std::vector<founder_alt_t> founders_alts_t;     // [marker][founder]
+    typedef std::vector<samples_alt_t> samples_alts_t;      // [marker][sample][haplotype]
+
+    inline void resize(uint32_t n_founders, uint32_t n_samples, uint32_t n_markers);
+
+    template <typename generator_t>
+    inline void simulate(generator_t && generator);
+
+    inline void write(markers<n_ploidy> const & markers_in, std::string const & vcf_filename_out);
 
     population() :
         n_founders(),
         n_samples(),
-        n_ploidy()
+        n_markers()
     {}
 
 private:
-//    std::vector<std::vector<bool>> founders_alts;   // founders[m][f] == ALT
-//    std::vector<std::vector<uint32_t>> haplotypes;  // haplotypes[n][p] = i
-
-    std::vector<bool> founders_alts;
-
-    std::vector<uint32_t> haplotypes;
-    std::vector<uint32_t> founders_freqs;
+    founders_freqs_t founders_freqs;
+    founders_map_t founders_map;
+    founders_alts_t founders_alts;
+    samples_alts_t samples_alts;
 
     uint32_t n_founders;
     uint32_t n_samples;
     uint32_t n_markers;
-    uint32_t n_ploidy;
-
-    inline void resize(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers);
 
     template <typename generator_t>
     inline void simulate_founders_freqs(generator_t && generator);
@@ -287,49 +382,52 @@ private:
     inline void simulate_founders_alts(generator_t && generator);
 
     template <typename generator_t>
-    inline void simulate_haplotypes(generator_t && generator);
+    inline void simulate_founders_map(generator_t && generator);
+
+    inline void assign_samples_alts();
 };
-
-// ----------------------------------------------------------------------------
-// Method population::simulate()
-// ----------------------------------------------------------------------------
-
-template <typename generator_t>
-inline void population::simulate(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers, generator_t && generator)
-{
-    resize(n_ploidy, n_founders, n_samples, n_markers);
-    simulate_founders_freqs(generator);
-    simulate_haplotypes(generator);
-    simulate_founders_alts(generator);
-}
 
 // ----------------------------------------------------------------------------
 // Method population::resize()
 // ----------------------------------------------------------------------------
 
-inline void population::resize(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers)
+template <uint8_t n_ploidy>
+inline void population<n_ploidy>::resize(uint32_t n_founders, uint32_t n_samples, uint32_t n_markers)
 {
     SEQAN_ASSERT_GT(n_samples, 0u);
-    SEQAN_ASSERT_LEQ(n_founders, n_samples);
+    SEQAN_ASSERT_LEQ(n_founders, n_samples * n_ploidy);
     SEQAN_ASSERT_GT(n_markers, 0u);
-    SEQAN_ASSERT_GT(n_ploidy, 0u);
 
-    this->n_ploidy = n_ploidy;
     this->n_founders = n_founders;
     this->n_samples = n_samples;
     this->n_markers = n_markers;
 
     founders_freqs.resize(n_founders, 1u);
-    founders_alts.resize(n_founders * n_markers, false);
-    haplotypes.resize(n_ploidy * n_samples);
+    founders_map.resize(boost::extents[n_samples][n_ploidy]);
+    founders_alts.resize(n_markers, founder_alt_t(n_founders));
+    samples_alts.resize(n_markers, samples_alt_t(n_samples));
+}
+
+// ----------------------------------------------------------------------------
+// Method population::simulate()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy> template <typename generator_t>
+inline void population<n_ploidy>::simulate(generator_t && generator)
+{
+    simulate_founders_freqs(generator);
+    simulate_founders_map(generator);
+
+    simulate_founders_alts(generator);
+    assign_samples_alts();
 }
 
 // ----------------------------------------------------------------------------
 // Method population::simulate_founders_freqs()
 // ----------------------------------------------------------------------------
 
-template <typename generator_t>
-inline void population::simulate_founders_freqs(generator_t && generator)
+template <uint8_t n_ploidy> template <typename generator_t>
+inline void population<n_ploidy>::simulate_founders_freqs(generator_t && generator)
 {
     SEQAN_ASSERT_EQ(founders_freqs.size(), n_founders);
 
@@ -339,52 +437,84 @@ inline void population::simulate_founders_freqs(generator_t && generator)
     for (uint32_t i = 0; i < n_samples * n_ploidy - n_founders; i++)
         founders_freqs[distribution(generator)]++;
 
-    std::cerr << "FOUNDERS: " << founders_freqs << std::endl;
+    std::cerr << "FOUNDERS FREQUENCIES: " << founders_freqs << std::endl;
+    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
-// Method population::simulate_haplotypes()
+// Method population::simulate_founders_map()
 // ----------------------------------------------------------------------------
 
-template <typename generator_t>
-inline void population::simulate_haplotypes(generator_t && generator)
+template <uint8_t n_ploidy> template <typename generator_t>
+inline void population<n_ploidy>::simulate_founders_map(generator_t && generator)
 {
-    SEQAN_ASSERT_EQ(haplotypes.size(), n_ploidy * n_samples);
+    SEQAN_ASSERT_EQ(founders_map.num_elements(), n_samples * n_ploidy);
     SEQAN_ASSERT_EQ(std::accumulate(founders_freqs.begin(), founders_freqs.end(), 0u), n_samples * n_ploidy);
 
-    auto haplotypes_it = haplotypes.begin();
+    auto founders_map_begin = founders_map.data();
+    auto founders_map_it = founders_map.data();
+    auto founders_map_end = founders_map.data() + founders_map.num_elements();
     for (auto founders_freqs_it = founders_freqs.begin(); founders_freqs_it != founders_freqs.end(); ++founders_freqs_it)
-        haplotypes_it = std::fill_n(haplotypes_it, *founders_freqs_it, founders_freqs_it - founders_freqs.begin());
-    SEQAN_ASSERT(haplotypes_it == haplotypes.end());
+        founders_map_it = std::fill_n(founders_map_it, *founders_freqs_it, founders_freqs_it - founders_freqs.begin());
+    SEQAN_ASSERT(founders_map_it == founders_map_end);
 
-    std::shuffle(haplotypes.begin(), haplotypes.end(), generator);
+    std::shuffle(founders_map_begin, founders_map_end, generator);
 
-    std::cerr << "HAPLOTYPES: " << haplotypes << std::endl;
+    std::cerr << "FOUNDERS MAP: " << founders_map << std::endl;
+    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
 // Method population::simulate_founders_alts()
 // ----------------------------------------------------------------------------
 
-template <typename generator_t>
-inline void population::simulate_founders_alts(generator_t && generator)
+template <uint8_t n_ploidy> template <typename generator_t>
+inline void population<n_ploidy>::simulate_founders_alts(generator_t && generator)
 {
     std::bernoulli_distribution distribution;
 
-//    std::generate(founders_alts.begin(), founders_alts.end(), generator);
-    std::generate(founders_alts.begin(), founders_alts.end(), [&distribution, &generator]()
+    // For each marker.
+    std::for_each(founders_alts.begin(), founders_alts.end(), [&distribution, &generator](auto & founders_alt)
     {
-        return distribution(generator);
+        // Generate alleles for all founders.
+        std::generate(founders_alt.begin(), founders_alt.end(), [&distribution, &generator]()
+        {
+            return distribution(generator);
+        });
     });
 
-    std::cerr << "ALLELES: " << founders_alts << std::endl;
+    std::for_each(founders_alts.begin(), founders_alts.end(), [](auto & founders_alt)
+    {
+        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
+    });
+    std::cerr << "=================================================================" << std::endl << std::endl;
+}
+
+// ----------------------------------------------------------------------------
+// Method population::assign_samples_alts()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
+inline void population<n_ploidy>::assign_samples_alts()
+{
+    for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
+        for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
+            for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; ++haplotype_id)
+                samples_alts[marker_id][sample_id][haplotype_id] = founders_alts[marker_id][founders_map[sample_id][haplotype_id]];
+
+    std::for_each(samples_alts.begin(), samples_alts.end(), [](auto & samples_alt)
+    {
+        std::cerr << "SAMPLES ALLELE: " << samples_alt << std::endl;
+    });
+    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
 // Method population::write()
 // ----------------------------------------------------------------------------
 
-inline void population::write(markers const & markers_in, std::string const & /* vcf_filename_out */)
+template <uint8_t n_ploidy>
+inline void population<n_ploidy>::write(markers<n_ploidy> const & markers_in, std::string const & /* vcf_filename_out */)
 {
     // Open output file.
 //    seqan::VcfFileOut vcf_out(seqan::toCString(options.vcf_filename_out));
@@ -406,7 +536,6 @@ inline void population::write(markers const & markers_in, std::string const & /*
     seqan::VcfHeader header_out;
     appendValue(header_out, seqan::VcfHeaderRecord("fileformat", "VCFv4.2"));
     appendValue(header_out, seqan::VcfHeaderRecord("ID", "<ID=GT,Number=1,Type=String,Description=\"Genotype\">"));
-//    appendValue(header_out, seqan::VcfHeaderRecord("phasing", "partial"));
     writeHeader(vcf_out, header_out);
 
     // Fill VCF record prototype.
@@ -417,19 +546,18 @@ inline void population::write(markers const & markers_in, std::string const & /*
     seqan::resize(record_out.genotypeInfos, n_samples);
 
     // Write VCF records.
-    for (uint32_t marker = 0; marker < n_markers; ++marker)
+    for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
     {
-        record_out.rID = std::get<0>(markers_in.positions[marker]);
-        record_out.beginPos = std::get<1>(markers_in.positions[marker]);
+        record_out.rID = std::get<0>(markers_in.positions[marker_id]);
+        record_out.beginPos = std::get<1>(markers_in.positions[marker_id]);
         clear(record_out.id);
-        appendNumber(record_out.id, marker);
-        record_out.ref = front(markers_in.alleles[marker]);
-        record_out.alt = back(markers_in.alleles[marker]);
+        appendNumber(record_out.id, marker_id);
+        record_out.ref = front(markers_in.alleles[marker_id]);
+        record_out.alt = back(markers_in.alleles[marker_id]);
 
         // Write VCF sample columns.
-        for (uint32_t sample = 0; sample < n_samples; ++sample)
-            record_out.genotypeInfos[sample] = "1|1|1|1";
-//            write_genotype(record_out.genotypeInfos[sample], founders_alts[marker][haplotypes[sample]]);
+        for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
+            write_genotype(record_out.genotypeInfos[sample_id], samples_alts[marker_id][sample_id]);
 
         writeRecord(vcf_out, record_out);
     }
@@ -519,46 +647,32 @@ void setup_argument_parser(seqan::ArgumentParser & parser, simba_hap_options con
     setMinValue(parser, "markers", "1");
 }
 
-// ============================================================================
-// App
-// ============================================================================
-
-// ----------------------------------------------------------------------------
-// Class simba_hap
-// ----------------------------------------------------------------------------
-
-struct simba_hap
-{
-    // Input.
-    markers markers_in;
-
-    // Output.
-    population pop_out;
-
-    void run(simba_hap_options const & options);
-};
-
 // ----------------------------------------------------------------------------
 // Method simba_hap::run()
 // ----------------------------------------------------------------------------
 
-void simba_hap::run(simba_hap_options const & options)
+template <uint8_t n_ploidy>
+void run(simba_hap_options const & options)
 {
     std::mt19937 generator(options.seed);
+
+    markers<n_ploidy> markers_in;
+    population<n_ploidy> pop_out;
 
     uint32_t n_markers = options.n_markers;
 
     if (options.vcf_filename_in.empty())
     {
-        markers_in.simulate(options.n_ploidy, options.n_samples, options.n_markers);
+        markers_in.simulate(options.n_samples, options.n_markers, generator);
     }
     else
     {
-        markers_in.read(options.n_ploidy, options.vcf_filename_in);
+        markers_in.read(options.vcf_filename_in);
         n_markers = markers_in.dosages.size();
     }
 
-    pop_out.simulate(options.n_ploidy, options.n_founders, options.n_samples, n_markers, generator);
+    pop_out.resize(options.n_founders, options.n_samples, n_markers);
+    pop_out.simulate(generator);
 
     pop_out.write(markers_in, options.vcf_filename_out);
 }
@@ -570,7 +684,6 @@ void simba_hap::run(simba_hap_options const & options)
 int main(int argc, char const ** argv)
 {
     seqan::ArgumentParser parser;
-    simba_hap app;
     simba_hap_options options;
 
     setup_argument_parser(parser, options);
@@ -583,7 +696,23 @@ int main(int argc, char const ** argv)
 
     try
     {
-        app.run(options);
+        switch (options.n_ploidy)
+        {
+            case 2:
+                run<2>(options);
+                break;
+            case 4:
+                run<4>(options);
+                break;
+            case 6:
+                run<6>(options);
+                break;
+            case 8:
+                run<8>(options);
+                break;
+            default:
+                throw seqan::RuntimeError("Unsupported ploidy");
+        }
     }
     catch (seqan::Exception const & e)
     {
