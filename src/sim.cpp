@@ -48,7 +48,7 @@ std::ostream& operator<<(std::ostream & s, std::vector<T> const & v)
 // ----------------------------------------------------------------------------
 // Function read_alleles()
 // ----------------------------------------------------------------------------
-// Read genotype string.
+// Read ref/alt strings.
 
 template <typename alleles_t>
 inline void read_alleles(alleles_t & alleles, seqan::VcfRecord const & record)
@@ -73,12 +73,30 @@ inline void read_genotype(genotype_t & genotype, genotype_info_t const & genotyp
 {
     genotype.clear();
 
+    // Read first field, assuming it is GT.
     auto genotype_it = directionIterator(genotype_info, seqan::Input());
     seqan::readUntil(genotype, genotype_it, seqan::EqualsChar<':'>());
 
     // Convert genotype string to vector by removing slashes.
     genotype.erase(std::remove(genotype.begin(), genotype.end(), '/'), genotype.end());
     genotype.erase(std::remove(genotype.begin(), genotype.end(), '|'), genotype.end());
+}
+
+// ----------------------------------------------------------------------------
+// Function write_genotype()
+// ----------------------------------------------------------------------------
+// Write genotype string.
+
+template <typename genotype_info_t, typename genotype_t>
+inline void write_genotype(genotype_info_t & genotype_info, genotype_t const & genotype)
+{
+//    auto genotype_it = directionIterator(genotype_info, seqan::Output());
+//    seqan::readUntil(genotype, genotype_it, seqan::EqualsChar<':'>());
+
+    // Interleave with pipes.
+//    genotype.erase(std::remove(genotype.begin(), genotype.end(), '|'), genotype.end());
+
+    genotype_info = genotype;
 }
 
 // ----------------------------------------------------------------------------
@@ -238,7 +256,7 @@ public:
     template <typename generator_t>
     inline void simulate(uint32_t n_ploidy, uint32_t n_founders, uint32_t n_samples, uint32_t n_markers, generator_t && generator);
 
-    inline void write(std::string const & vcf_filename_out);
+    inline void write(markers const & markers_in, std::string const & vcf_filename_out);
 
     population() :
         n_founders(),
@@ -247,11 +265,11 @@ public:
     {}
 
 private:
-//    typedef std::vector<bool> marker_t;
-
-//    std::vector<marker_t> founders_alts;            // founders[m][f] == ALT
+//    std::vector<std::vector<bool>> founders_alts;   // founders[m][f] == ALT
 //    std::vector<std::vector<uint32_t>> haplotypes;  // haplotypes[n][p] = i
+
     std::vector<bool> founders_alts;
+
     std::vector<uint32_t> haplotypes;
     std::vector<uint32_t> founders_freqs;
 
@@ -366,8 +384,55 @@ inline void population::simulate_founders_alts(generator_t && generator)
 // Method population::write()
 // ----------------------------------------------------------------------------
 
-inline void population::write(std::string const & vcf_filename_out)
+inline void population::write(markers const & markers_in, std::string const & /* vcf_filename_out */)
 {
+    // Open output file.
+//    seqan::VcfFileOut vcf_out(seqan::toCString(options.vcf_filename_out));
+    seqan::VcfFileOut vcf_out(std::cout, seqan::Vcf());
+
+    // Fill contig names.
+//    contigNames(context(vcf_out)) = contigNames(context(vcf_in));
+    appendValue(contigNames(context(vcf_out)), "chr01");
+
+    // Fill sample names.
+    seqan::resize(sampleNames(context(vcf_out)), n_samples);
+    for (uint32_t sample = 0; sample < n_samples; ++sample)
+    {
+        sampleNames(context(vcf_out))[sample] = "SAMPLE_";
+        seqan::appendNumber(sampleNames(context(vcf_out))[sample], sample);
+    }
+
+    // Write VCF header.
+    seqan::VcfHeader header_out;
+    appendValue(header_out, seqan::VcfHeaderRecord("fileformat", "VCFv4.2"));
+    appendValue(header_out, seqan::VcfHeaderRecord("ID", "<ID=GT,Number=1,Type=String,Description=\"Genotype\">"));
+//    appendValue(header_out, seqan::VcfHeaderRecord("phasing", "partial"));
+    writeHeader(vcf_out, header_out);
+
+    // Fill VCF record prototype.
+    seqan::VcfRecord record_out;
+    record_out.filter = "";
+    record_out.info = "";
+    record_out.format = "GT";
+    seqan::resize(record_out.genotypeInfos, n_samples);
+
+    // Write VCF records.
+    for (uint32_t marker = 0; marker < n_markers; ++marker)
+    {
+        record_out.rID = std::get<0>(markers_in.positions[marker]);
+        record_out.beginPos = std::get<1>(markers_in.positions[marker]);
+        clear(record_out.id);
+        appendNumber(record_out.id, marker);
+        record_out.ref = front(markers_in.alleles[marker]);
+        record_out.alt = back(markers_in.alleles[marker]);
+
+        // Write VCF sample columns.
+        for (uint32_t sample = 0; sample < n_samples; ++sample)
+            record_out.genotypeInfos[sample] = "1|1|1|1";
+//            write_genotype(record_out.genotypeInfos[sample], founders_alts[marker][haplotypes[sample]]);
+
+        writeRecord(vcf_out, record_out);
+    }
 }
 
 // ============================================================================
@@ -382,6 +447,7 @@ class simba_hap_options
 {
 public:
     std::string vcf_filename_in;
+    std::string vcf_filename_out;
 
     uint32_t seed;
 
@@ -493,6 +559,8 @@ void simba_hap::run(simba_hap_options const & options)
     }
 
     pop_out.simulate(options.n_ploidy, options.n_founders, options.n_samples, n_markers, generator);
+
+    pop_out.write(markers_in, options.vcf_filename_out);
 }
 
 // ----------------------------------------------------------------------------
