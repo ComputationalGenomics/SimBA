@@ -1,7 +1,8 @@
-// ==========================================================================
-//                              SimBA-hap
-// ==========================================================================
+// ============================================================================
+// SimBA-hap
+//
 // Copyright (c) 2016 IBM Research
+// ============================================================================
 
 #include <seqan/basic.h>
 #include <seqan/arg_parse.h>
@@ -70,13 +71,6 @@ inline reference_view<T> view(T & t)
 
 namespace std
 {
-template <typename T>
-std::ostream& operator<<(std::ostream & s, reference_view<T> const & v)
-{
-    s << v.get();
-    return s;
-}
-
 template <typename T1, typename T2>
 std::ostream& operator<<(std::ostream & s, std::pair<T1, T2> const & p)
 {
@@ -115,7 +109,7 @@ std::ostream& operator<<(std::ostream & s, boost::multi_array<T, SIZE> const & m
 }
 
 // ============================================================================
-// Functions on genotypes
+// VCF I/O
 // ============================================================================
 
 // ----------------------------------------------------------------------------
@@ -174,15 +168,9 @@ inline void write_genotype(genotype_info_t & genotype_info, genotype_t const & g
     seqan::appendNumber(genotype_info, genotype.back().get());
 }
 
-// ----------------------------------------------------------------------------
-// Function ref_genotype()
-// ----------------------------------------------------------------------------
-
-//template <typename genotype_t>
-//inline void ref_genotype(genotype_t & genotype)
-//{
-//    std::fill(genotype.begin(), genotype.end(), 0u);
-//}
+// ============================================================================
+// Genotypes
+// ============================================================================
 
 // ----------------------------------------------------------------------------
 // Function get_ploidy()
@@ -195,34 +183,54 @@ inline uint32_t get_ploidy(genotype_t const & genotype)
 }
 
 // ----------------------------------------------------------------------------
-// Function ref_dosage()
-// ----------------------------------------------------------------------------
-
-template <typename genotype_t>
-inline size_t ref_dosage(genotype_t const & genotype)
-{
-    return std::count(genotype.begin(), genotype.end(), '0');
-}
-
-// ----------------------------------------------------------------------------
 // Function is_unknown()
 // ----------------------------------------------------------------------------
 
 template <typename genotype_t>
 inline bool is_unknown(genotype_t const & genotype)
 {
-    return genotype.size() == 1u && genotype.front() == '.';
+    return genotype.back() == '.';
 }
 
 // ----------------------------------------------------------------------------
-// Function is_homozygous()
+// Function alt_dosage()
 // ----------------------------------------------------------------------------
 
-//template <typename genotype_t>
-//inline bool is_homozygous(genotype_t const & genotype)
-//{
-//    return std::adjacent_find(genotype.begin(), genotype.end(), std::not_equal_to<char>()) == genotype.end();
-//}
+template <typename genotype_t>
+inline uint32_t alt_dosage(genotype_t const & genotype)
+{
+    return std::count(genotype.begin(), genotype.end(), '1');
+}
+
+// ============================================================================
+// Dosages
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Metafunction dosages<>::type
+// ----------------------------------------------------------------------------
+
+template <uint32_t n_ploidy>
+struct dosages
+{
+    typedef std::array<uint32_t, n_ploidy + 1u> type;
+};
+
+// ----------------------------------------------------------------------------
+// Function alt_dosages()
+// ----------------------------------------------------------------------------
+
+template <uint32_t n_ploidy, typename genotypes_t>
+inline typename dosages<n_ploidy>::type alt_dosages(genotypes_t const & genotypes)
+{
+    typename dosages<n_ploidy>::type dosages;
+    std::fill(dosages.begin(), dosages.end(), 0u);
+
+    for (auto const & genotype : genotypes)
+        dosages[alt_dosage(genotype)]++;
+
+    return dosages;
+}
 
 // ============================================================================
 // Markers
@@ -238,7 +246,7 @@ struct markers
     typedef std::pair<uint32_t, uint32_t> position_t;
 //    typedef std::array<seqan::IupacString, 2> alleles_t;
     typedef seqan::StringSet<seqan::IupacString, seqan::Owner<seqan::ConcatDirect<>>> alleles_t;
-    typedef std::vector<uint32_t> dosages_t;
+    typedef typename dosages<n_ploidy>::type dosages_t;
 
     std::vector<position_t> positions; // positions[m] = (chr, pos)
     std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
@@ -282,11 +290,11 @@ inline void markers<n_ploidy>::read(std::string const & vcf_filename_in)
 
         if (length(alleles) > 2)
         {
-            std::cerr << "VARIANT @ " << position << " POLYALLELIC" << std::endl;
+            std::cerr << "INPUT VARIANT @ " << position << " POLYALLELIC" << std::endl;
             continue;
         }
 
-        dosages.resize(n_ploidy);
+//        dosages.resize(n_ploidy);
         std::fill(dosages.begin(), dosages.end(), 0u);
 
         // Read all sample genotypes.
@@ -297,7 +305,7 @@ inline void markers<n_ploidy>::read(std::string const & vcf_filename_in)
             // Skip unknown genotypes.
             if (is_unknown(genotype))
             {
-                std::cerr << "GENOTYPE @ " << position << " UNKNOWN" << std::endl;
+                std::cerr << "INPUT GENOTYPE @ " << position << " UNKNOWN" << std::endl;
                 continue;
             }
 
@@ -305,14 +313,14 @@ inline void markers<n_ploidy>::read(std::string const & vcf_filename_in)
             if (get_ploidy(genotype) != n_ploidy)
                 throw seqan::IOError("Input ploidy does not match VCF genotypes");
 
-            dosages[ref_dosage(genotype)]++;
+            dosages[alt_dosage(genotype)]++;
         }
 
         this->positions.push_back(position);
         this->alleles.push_back(alleles);
         this->dosages.push_back(dosages);
 
-        std::cerr << "DOSAGES @ " << position << " # " << dosages << std::endl;
+        std::cerr << "INPUT DOSAGES @ " << position << " # " << dosages << std::endl;
     }
 
     std::cerr << "=================================================================" << std::endl << std::endl;
@@ -431,8 +439,8 @@ inline void population<n_ploidy>::simulate_founders_freqs(generator_t && generat
 {
     SEQAN_ASSERT_EQ(founders_freqs.size(), n_founders);
 
-    std::uniform_int_distribution<uint32_t> distribution(1u, n_founders - 1);
-//    std::normal_distribution<uint32_t> distribution(1u, n_founders - 1);
+    std::uniform_int_distribution<uint32_t> distribution(0u, n_founders - 1);
+//    std::normal_distribution<uint32_t> distribution(0u, n_founders - 1);
 
     for (uint32_t i = 0; i < n_samples * n_ploidy - n_founders; i++)
         founders_freqs[distribution(generator)]++;
@@ -507,6 +515,12 @@ inline void population<n_ploidy>::assign_samples_alts()
         std::cerr << "SAMPLES ALLELE: " << samples_alt << std::endl;
     });
     std::cerr << "=================================================================" << std::endl << std::endl;
+
+    std::for_each(samples_alts.begin(), samples_alts.end(), [](auto & samples_alt)
+    {
+        std::cerr << "SAMPLES DOSAGES: " << alt_dosages<n_ploidy>(samples_alt) << std::endl;
+    });
+    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
@@ -564,16 +578,15 @@ inline void population<n_ploidy>::write(markers<n_ploidy> const & markers_in, st
 }
 
 // ============================================================================
-// App options
+// App
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// Class simba_hap_options
+// Class app_options
 // ----------------------------------------------------------------------------
 
-class simba_hap_options
+struct app_options
 {
-public:
     std::string vcf_filename_in;
     std::string vcf_filename_out;
 
@@ -583,6 +596,53 @@ public:
     uint32_t n_founders;
     uint32_t n_samples;
     uint32_t n_markers;
+
+    app_options():
+        seed(0),
+        n_ploidy(4),
+        n_founders(1),
+        n_samples(1),
+        n_markers(1)
+    {}
+
+    void setup(seqan::ArgumentParser & parser) const
+    {
+        setAppName(parser, "SimBA-hap");
+        setShortDescription(parser, "Haplotypes simulator");
+        setCategory(parser, "Simulation");
+
+        setVersion(parser, SEQAN_APP_VERSION " [" SEQAN_REVISION "]");
+        setDate(parser, SEQAN_DATE);
+
+        addUsageLine(parser, "[\\fIOPTIONS\\fP]");
+
+        addOption(parser, seqan::ArgParseOption("g", "seed", "Initial seed for pseudo-random number generation.",
+                                                seqan::ArgParseOption::INTEGER));
+        setMinValue(parser, "seed", "0");
+        setDefaultValue(parser, "seed", seed);
+
+        addOption(parser, seqan::ArgParseOption("v", "vcf", "Input VCF file.", seqan::ArgParseOption::INPUT_FILE));
+        setValidValues(parser, "vcf", seqan::VcfFileIn::getFileExtensions());
+
+        addOption(parser, seqan::ArgParseOption("p", "ploidy", "Organism ploidy.",
+                                                seqan::ArgParseOption::INTEGER));
+        setMinValue(parser, "ploidy", "2");
+        setMaxValue(parser, "ploidy", "8");
+        setDefaultValue(parser, "ploidy", n_ploidy);
+
+        addOption(parser, seqan::ArgParseOption("f", "founders", "Number of founders to simulate.",
+                                                seqan::ArgParseOption::INTEGER));
+        setMinValue(parser, "founders", "1");
+        setDefaultValue(parser, "founders", n_founders);
+
+        addOption(parser, seqan::ArgParseOption("s", "samples", "Number of samples to simulate. Default: all samples in the input VCF file.",
+                                                seqan::ArgParseOption::INTEGER));
+        setMinValue(parser, "samples", "1");
+
+        addOption(parser, seqan::ArgParseOption("m", "markers", "Number of markers to use. Default: all markers in the input VCF file.",
+                                                seqan::ArgParseOption::INTEGER));
+        setMinValue(parser, "markers", "1");
+    }
 
     void parse(seqan::ArgumentParser const & parser)
     {
@@ -594,65 +654,14 @@ public:
         getOptionValue(n_samples, parser, "samples");
         getOptionValue(n_markers, parser, "markers");
     }
-
-    simba_hap_options():
-        seed(0),
-        n_ploidy(4),
-        n_founders(1),
-        n_samples(1),
-        n_markers(1)
-    {}
 };
 
 // ----------------------------------------------------------------------------
-// Function setup_argument_parser()
-// ----------------------------------------------------------------------------
-
-void setup_argument_parser(seqan::ArgumentParser & parser, simba_hap_options const & options)
-{
-    setAppName(parser, "SimBA-hap");
-    setShortDescription(parser, "Haplotypes simulator");
-    setCategory(parser, "Simulation");
-
-    setVersion(parser, SEQAN_APP_VERSION " [" SEQAN_REVISION "]");
-    setDate(parser, SEQAN_DATE);
-
-    addUsageLine(parser, "[\\fIOPTIONS\\fP]");
-
-    addOption(parser, seqan::ArgParseOption("g", "seed", "Initial seed for pseudo-random number generation.",
-                                            seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "seed", "0");
-    setDefaultValue(parser, "seed", options.seed);
-
-    addOption(parser, seqan::ArgParseOption("v", "vcf", "Input VCF file.", seqan::ArgParseOption::INPUT_FILE));
-    setValidValues(parser, "vcf", seqan::VcfFileIn::getFileExtensions());
-
-    addOption(parser, seqan::ArgParseOption("p", "ploidy", "Organism ploidy.",
-                                            seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "ploidy", "2");
-    setMaxValue(parser, "ploidy", "8");
-    setDefaultValue(parser, "ploidy", options.n_ploidy);
-
-    addOption(parser, seqan::ArgParseOption("f", "founders", "Number of founders to simulate.",
-                                            seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "founders", "1");
-    setDefaultValue(parser, "founders", options.n_founders);
-
-    addOption(parser, seqan::ArgParseOption("s", "samples", "Number of samples to simulate. Default: all samples in the input VCF file.",
-                                            seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "samples", "1");
-
-    addOption(parser, seqan::ArgParseOption("m", "markers", "Number of markers to use. Default: all markers in the input VCF file.",
-                                            seqan::ArgParseOption::INTEGER));
-    setMinValue(parser, "markers", "1");
-}
-
-// ----------------------------------------------------------------------------
-// Method simba_hap::run()
+// Function run()
 // ----------------------------------------------------------------------------
 
 template <uint8_t n_ploidy>
-void run(simba_hap_options const & options)
+void run(app_options const & options)
 {
     std::mt19937 generator(options.seed);
 
@@ -684,9 +693,10 @@ void run(simba_hap_options const & options)
 int main(int argc, char const ** argv)
 {
     seqan::ArgumentParser parser;
-    simba_hap_options options;
+    app_options options;
 
-    setup_argument_parser(parser, options);
+    options.setup(parser);
+
     seqan::ArgumentParser::ParseResult res = parse(parser, argc, argv);
 
     if (res != seqan::ArgumentParser::PARSE_OK)
@@ -698,18 +708,18 @@ int main(int argc, char const ** argv)
     {
         switch (options.n_ploidy)
         {
-            case 2:
-                run<2>(options);
-                break;
+//            case 2:
+//                run<2>(options);
+//                break;
             case 4:
                 run<4>(options);
                 break;
-            case 6:
-                run<6>(options);
-                break;
-            case 8:
-                run<8>(options);
-                break;
+//            case 6:
+//                run<6>(options);
+//                break;
+//            case 8:
+//                run<8>(options);
+//                break;
             default:
                 throw seqan::RuntimeError("Unsupported ploidy");
         }
