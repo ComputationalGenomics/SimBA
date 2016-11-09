@@ -99,12 +99,34 @@ std::ostream& operator<<(std::ostream & s, std::array<T, SIZE> const & v)
 }
 }
 
-namespace boost {
+// ============================================================================
+// Extensions to Boost
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Operator <<
+// ----------------------------------------------------------------------------
+
+namespace boost
+{
+template <typename T, size_t SIZE>
+std::ostream& operator<<(std::ostream & s, detail::multi_array::const_sub_array<T, SIZE> const & m)
+{
+    typedef typename detail::multi_array::const_sub_array<T, SIZE>::value_type value_t;
+
+    s << "[ ";
+    std::copy(m.data(), m.data() + m.num_elements(), std::ostream_iterator<value_t>(s, " "));
+    s << "]";
+    return s;
+}
+
 template <typename T, size_t SIZE>
 std::ostream& operator<<(std::ostream & s, boost::multi_array<T, SIZE> const & m)
 {
+    typedef typename boost::multi_array<T, SIZE>::value_type value_t;
+    
     s << "[ ";
-    std::copy(m.data(), m.data() + m.num_elements(), std::ostream_iterator<T>(s, " "));
+    std::copy(m.begin(), m.end(), std::ostream_iterator<value_t>(s, " "));
     s << "]";
     return s;
 }
