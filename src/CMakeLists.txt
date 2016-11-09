@@ -36,7 +36,7 @@ endif (NOT ZLIB_FOUND)
 
 # Add include directories for SeqAn and other dependencies.
 include_directories (${SEQAN_INCLUDE_DIRS})
-include_directories (SYSTEM ${Boost_INCLUDE_DIR})
+include_directories (SYSTEM ${LEMON_INCLUDE_DIRS} ${Boost_INCLUDE_DIR})
 
 # Add definitions set by find_package (SeqAn).
 add_definitions (${SEQAN_DEFINITIONS})
@@ -55,7 +55,7 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEQAN_CXX_FLAGS}")
 
 # Add executables.
 add_executable (sim sim.cpp)
-target_link_libraries (sim ${SEQAN_LIBRARIES})
+target_link_libraries (sim ${SEQAN_LIBRARIES} ${LEMON_LIBRARIES})
 
 # ----------------------------------------------------------------------------
 # Tests

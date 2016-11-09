@@ -39,6 +39,33 @@ seqan_setup_library ()
 include (package)
 
 # ----------------------------------------------------------------------------
+# Prepare Lemon Library
+# ----------------------------------------------------------------------------
+
+message (STATUS "Configuring Lemon")
+
+FIND_PATH(LEMON_SOURCE_ROOT_DIR CMakeLists.txt
+  PATHS ${CMAKE_SOURCE_DIR}/deps/lemon
+  NO_DEFAULT_PATH
+  DOC "Location of LEMON source as a CMAKE subproject")
+
+IF(EXISTS ${LEMON_SOURCE_ROOT_DIR})
+  ADD_SUBDIRECTORY(${LEMON_SOURCE_ROOT_DIR} deps/lemon)
+  SET(LEMON_INCLUDE_DIRS
+    ${LEMON_SOURCE_ROOT_DIR}
+    ${CMAKE_BINARY_DIR}/deps/lemon
+  )
+  SET(LEMON_LIBRARIES lemon)
+  UNSET(LEMON_ROOT_DIR CACHE)
+  UNSET(LEMON_DIR CACHE)
+  UNSET(LEMON_INCLUDE_DIR CACHE)
+  UNSET(LEMON_LIBRARY CACHE)
+ELSE()
+  FIND_PACKAGE(LEMON QUIET NO_MODULE)
+  FIND_PACKAGE(LEMON REQUIRED)
+ENDIF()
+
+# ----------------------------------------------------------------------------
 # Include Sources Directory
 # ----------------------------------------------------------------------------
 
