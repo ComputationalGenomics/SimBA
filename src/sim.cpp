@@ -198,10 +198,23 @@ inline bool is_unknown(genotype_t const & genotype)
 // Function alt_dosage()
 // ----------------------------------------------------------------------------
 
+//template <typename alt_t>
+//struct alt_allele
+//{
+//    static const bool value = true;
+//};
+//
+//template <>
+//struct alt_allele<char>
+//{
+//    static const char value = '1';
+//};
+
 template <typename genotype_t>
 inline uint32_t alt_dosage(genotype_t const & genotype)
 {
     return std::count(genotype.begin(), genotype.end(), '1');
+//    return std::count(genotype.begin(), genotype.end(), alt_allele<typename genotype_t::value_type>::value);
 }
 
 // ============================================================================
@@ -212,20 +225,21 @@ inline uint32_t alt_dosage(genotype_t const & genotype)
 // Metafunction dosages<>::type
 // ----------------------------------------------------------------------------
 
-template <uint32_t n_ploidy>
+template <typename value_t, uint32_t n_ploidy>
 struct dosages
 {
-    typedef std::array<uint32_t, n_ploidy + 1u> type;
+    typedef std::array<value_t, n_ploidy + 1u> type;
 };
 
 // ----------------------------------------------------------------------------
 // Function alt_dosages()
 // ----------------------------------------------------------------------------
 
-template <uint32_t n_ploidy, typename genotypes_t>
-inline typename dosages<n_ploidy>::type alt_dosages(genotypes_t const & genotypes)
+template <typename value_t, uint32_t n_ploidy, typename genotypes_t>
+inline typename dosages<value_t, n_ploidy>::type alt_dosages(genotypes_t const & genotypes)
 {
-    typename dosages<n_ploidy>::type dosages;
+    typename dosages<value_t, n_ploidy>::type dosages;
+
     std::fill(dosages.begin(), dosages.end(), 0u);
 
     for (auto const & genotype : genotypes)
@@ -248,7 +262,7 @@ struct markers
     typedef std::pair<uint32_t, uint32_t> position_t;
 //    typedef std::array<seqan::IupacString, 2> alleles_t;
     typedef seqan::StringSet<seqan::IupacString, seqan::Owner<seqan::ConcatDirect<>>> alleles_t;
-    typedef typename dosages<n_ploidy>::type dosages_t;
+    typedef typename dosages<float, n_ploidy>::type dosages_t;
 
     std::vector<position_t> positions; // positions[m] = (chr, pos)
     std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
@@ -258,6 +272,8 @@ struct markers
 
     template <typename generator_t>
     inline void simulate(uint32_t n_samples, uint32_t n_markers, generator_t && generator);
+
+    inline void normalize(uint32_t n_samples);
 };
 
 // ----------------------------------------------------------------------------
@@ -340,6 +356,21 @@ inline void markers<n_ploidy>::simulate(uint32_t n_samples, uint32_t n_markers, 
     seqan::ignoreUnusedVariableWarning(generator);
 }
 
+// ----------------------------------------------------------------------------
+// Method markers::normalize()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
+inline void markers<n_ploidy>::normalize(uint32_t n_samples)
+{
+    std::for_each(dosages.begin(), dosages.end(), [this, n_samples](auto & marker_dosages)
+    {
+        auto dosages_sum = std::accumulate(marker_dosages.begin(), marker_dosages.end(), 0.0f);
+        std::transform(marker_dosages.begin(), marker_dosages.end(), marker_dosages.begin(),
+                      [n_samples, dosages_sum](auto d) { return n_samples * d / dosages_sum; });
+    });
+}
+
 // ============================================================================
 // Population
 // ============================================================================
@@ -398,6 +429,7 @@ private:
     inline void simulate_founders_alts(generator_t && generator);
 
     inline void fit_founders_alts();
+    inline void fit_founders_alts(uint32_t marker_id);
 
     inline void assign_samples_alts();
 };
@@ -435,6 +467,7 @@ inline void population<n_ploidy>::simulate(generator_t && generator)
 
 //    simulate_founders_alts(generator);
     fit_founders_alts();
+
     assign_samples_alts();
 }
 
@@ -514,8 +547,27 @@ inline void population<n_ploidy>::simulate_founders_alts(generator_t && generato
 template <uint8_t n_ploidy>
 inline void population<n_ploidy>::fit_founders_alts()
 {
+    for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
+        fit_founders_alts(marker_id);
+
+    std::cerr << "=================================================================" << std::endl << std::endl;
+
+    std::for_each(founders_alts.begin(), founders_alts.end(), [](auto & founders_alt)
+    {
+        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
+    });
+    std::cerr << "=================================================================" << std::endl << std::endl;
+}
+
+// ----------------------------------------------------------------------------
+// Method population::fit_founders_alts()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
+inline void population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
+{
     typedef std::array<lemon::Mip::Col, n_ploidy + 1u> mip_cols_t;
-    typedef std::array<float, n_ploidy + 1u> dosages_t;
+    typedef typename dosages<float, n_ploidy>::type dosages_t;
 
     lemon::Mip mip;
     mip_cols_t mip_z;                       // [dosage]
@@ -523,6 +575,8 @@ inline void population<n_ploidy>::fit_founders_alts()
     std::vector<mip_cols_t> mip_errors;     // [sample][dosage]
     std::vector<mip_cols_t> mip_indicators; // [sample][dosage]
     std::vector<lemon::Mip::Col> mip_alts;  // [founder]
+
+    auto const & marker_dosages = markers_in.dosages[marker_id];
 
     // Vector z to linearize l1-norm objective.
     std::generate(mip_z.begin(), mip_z.end(), [&mip]() { return mip.addCol(); });
@@ -574,14 +628,6 @@ inline void population<n_ploidy>::fit_founders_alts()
         mip.colLowerBound(a, 0);
         mip.colUpperBound(a, 1);
     });
-
-    uint32_t marker_id = 2u;
-    auto const & marker_dosages_in = markers_in.dosages[marker_id];
-    float dosages_sum = std::accumulate(marker_dosages_in.begin(), marker_dosages_in.end(), 0.0f);
-
-    dosages_t marker_dosages;
-    std::transform(marker_dosages_in.begin(), marker_dosages_in.end(), marker_dosages.begin(),
-                  [this, dosages_sum](auto d) { return n_samples * d / dosages_sum; });
 
     // Constraint d - d_obs <= z.
     // Constraint d_obs - d <= z.
@@ -638,40 +684,34 @@ inline void population<n_ploidy>::fit_founders_alts()
 
     std::cerr << "DISTANCE: " << mip.solValue() << std::endl;
 
-    std::cerr << "DOSAGES IN: " << marker_dosages << std::endl;
+    std::cerr << "DOSAGES IN:  " << marker_dosages << std::endl;
 
-    typename dosages<n_ploidy>::type dosages_out;
+    typename dosages<uint32_t, n_ploidy>::type dosages_out;
     std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_out.begin(), [&mip](auto d){ return mip.sol(d); });
     std::cerr << "DOSAGES OUT: " << dosages_out << std::endl;
 
-    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
-
-    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto const & sample_errors)
-    {
-        dosages_t errors;
-        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [&mip](auto i){ return mip.sol(i); });
-        std::cerr << "ERRORS: " << errors << std::endl;
-    });
-
-    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
-
-    std::for_each(mip_indicators.begin(), mip_indicators.end(), [&mip](auto const & sample_indicators)
-    {
-        typename dosages<n_ploidy>::type indicators;
-        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [&mip](auto i){ return mip.sol(i); });
-        std::cerr << "INDICATORS: " << indicators << std::endl;
-    });
-
-    std::cerr << "=================================================================" << std::endl << std::endl;
+    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+//
+//    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto const & sample_errors)
+//    {
+//        dosages_t errors;
+//        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [&mip](auto i){ return mip.sol(i); });
+//        std::cerr << "ERRORS: " << errors << std::endl;
+//    });
+//
+//    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+//
+//    std::for_each(mip_indicators.begin(), mip_indicators.end(), [&mip](auto const & sample_indicators)
+//    {
+//        typename dosages<bool, n_ploidy>::type indicators;
+//        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [&mip](auto i){ return mip.sol(i); });
+//        std::cerr << "INDICATORS: " << indicators << std::endl;
+//    });
+//
+//    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
 
     // Update founder alleles.
     std::transform(mip_alts.begin(), mip_alts.end(), founders_alts[marker_id].begin(), [&mip](auto a){ return mip.sol(a); });
-
-    std::for_each(founders_alts.begin(), founders_alts.end(), [](auto & founders_alt)
-    {
-        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
-    });
-    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
@@ -855,6 +895,8 @@ void run(app_options const & options)
         markers_in.read(options.vcf_filename_in);
         n_markers = markers_in.dosages.size();
     }
+
+    markers_in.normalize(options.n_samples);
 
     pop_out.resize(options.n_founders, options.n_samples, n_markers);
     pop_out.simulate(generator);
