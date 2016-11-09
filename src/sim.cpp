@@ -566,8 +566,7 @@ inline void population<n_ploidy>::fit_founders_alts()
 template <uint8_t n_ploidy>
 inline void population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 {
-    typedef std::array<lemon::Mip::Col, n_ploidy + 1u> mip_cols_t;
-    typedef typename dosages<float, n_ploidy>::type dosages_t;
+    typedef typename dosages<lemon::Mip::Col, n_ploidy>::type mip_cols_t;
 
     lemon::Mip mip;
     mip_cols_t mip_z;                       // [dosage]
@@ -682,15 +681,11 @@ inline void population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 
     SEQAN_ASSERT_EQ(mip.type(), lemon::MipSolver::OPTIMAL);
 
-    std::cerr << "DISTANCE: " << mip.solValue() << std::endl;
-
-    std::cerr << "DOSAGES IN:  " << marker_dosages << std::endl;
-
     typename dosages<uint32_t, n_ploidy>::type dosages_out;
     std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_out.begin(), [&mip](auto d){ return mip.sol(d); });
-    std::cerr << "DOSAGES OUT: " << dosages_out << std::endl;
+    std::cerr << "DISTANCE: " << mip.solValue() << " = " << std::make_pair(marker_dosages, dosages_out) << std::endl;
 
-    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+//    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
 //
 //    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto const & sample_errors)
 //    {
