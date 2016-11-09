@@ -782,7 +782,7 @@ inline void population<n_ploidy>::write(std::string const & /* vcf_filename_out 
     // Write VCF header.
     seqan::VcfHeader header_out;
     appendValue(header_out, seqan::VcfHeaderRecord("fileformat", "VCFv4.2"));
-    appendValue(header_out, seqan::VcfHeaderRecord("ID", "<ID=GT,Number=1,Type=String,Description=\"Genotype\">"));
+    appendValue(header_out, seqan::VcfHeaderRecord("FORMAT", "<ID=GT,Number=1,Type=String,Description=\"Genotype\">"));
     writeHeader(vcf_out, header_out);
 
     // Fill VCF record prototype.
