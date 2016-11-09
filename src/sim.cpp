@@ -367,15 +367,18 @@ public:
     template <typename generator_t>
     inline void simulate(generator_t && generator);
 
-    inline void write(markers<n_ploidy> const & markers_in, std::string const & vcf_filename_out);
+    inline void write(std::string const & vcf_filename_out);
 
-    population() :
+    population(markers<n_ploidy> const & markers_in) :
+        markers_in(markers_in),
         n_founders(),
         n_samples(),
         n_markers()
     {}
 
 private:
+    markers<n_ploidy> const & markers_in;
+
     founders_freqs_t founders_freqs;
     founders_map_t founders_map;
     founders_alts_t founders_alts;
@@ -389,10 +392,12 @@ private:
     inline void simulate_founders_freqs(generator_t && generator);
 
     template <typename generator_t>
-    inline void simulate_founders_alts(generator_t && generator);
+    inline void simulate_founders_map(generator_t && generator);
 
     template <typename generator_t>
-    inline void simulate_founders_map(generator_t && generator);
+    inline void simulate_founders_alts(generator_t && generator);
+
+    inline void fit_founders_alts();
 
     inline void assign_samples_alts();
 };
@@ -428,7 +433,8 @@ inline void population<n_ploidy>::simulate(generator_t && generator)
     simulate_founders_freqs(generator);
     simulate_founders_map(generator);
 
-    simulate_founders_alts(generator);
+//    simulate_founders_alts(generator);
+    fit_founders_alts();
     assign_samples_alts();
 }
 
@@ -500,6 +506,174 @@ inline void population<n_ploidy>::simulate_founders_alts(generator_t && generato
     std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
+
+// ----------------------------------------------------------------------------
+// Method population::fit_founders_alts()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
+inline void population<n_ploidy>::fit_founders_alts()
+{
+    typedef std::array<lemon::Mip::Col, n_ploidy + 1u> mip_cols_t;
+    typedef std::array<float, n_ploidy + 1u> dosages_t;
+
+    lemon::Mip mip;
+    mip_cols_t mip_z;                       // [dosage]
+    mip_cols_t mip_dosages;                 // [dosage]
+    std::vector<mip_cols_t> mip_errors;     // [sample][dosage]
+    std::vector<mip_cols_t> mip_indicators; // [sample][dosage]
+    std::vector<lemon::Mip::Col> mip_alts;  // [founder]
+
+    // Vector z to linearize l1-norm objective.
+    std::generate(mip_z.begin(), mip_z.end(), [&mip]() { return mip.addCol(); });
+    std::for_each(mip_z.begin(), mip_z.end(), [&mip](auto z)
+    {
+        mip.colType(z, lemon::Mip::REAL);
+        mip.colLowerBound(z, 0);
+    });
+
+    // Dosages d.
+    std::generate(mip_dosages.begin(), mip_dosages.end(), [&mip]() { return mip.addCol(); });
+    std::for_each(mip_dosages.begin(), mip_dosages.end(), [&mip](auto d)
+    {
+        mip.colType(d, lemon::Mip::INTEGER);
+        mip.colLowerBound(d, 0);
+    });
+
+    // Dosage absolute errors e_s,p.
+    mip_errors.resize(n_samples);
+    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto & mip_sample)
+    {
+        std::generate(mip_sample.begin(), mip_sample.end(), [&mip]() { return mip.addCol(); });
+        std::for_each(mip_sample.begin(), mip_sample.end(), [&mip](auto e)
+        {
+            mip.colType(e, lemon::Mip::REAL);
+            mip.colLowerBound(e, 0);
+        });
+    });
+
+    // Dosage indicators i_s,p.
+    mip_indicators.resize(n_samples);
+    std::for_each(mip_indicators.begin(), mip_indicators.end(), [&mip](auto & mip_sample)
+    {
+        std::generate(mip_sample.begin(), mip_sample.end(), [&mip]() { return mip.addCol(); });
+        std::for_each(mip_sample.begin(), mip_sample.end(), [&mip](auto i)
+        {
+            mip.colType(i, lemon::Mip::INTEGER);
+            mip.colLowerBound(i, 0);
+//            mip.colUpperBound(i, 1);
+        });
+    });
+
+    // Founder alleles f.
+    mip_alts.resize(n_founders);
+    std::generate(mip_alts.begin(), mip_alts.end(), [&mip]() { return mip.addCol(); });
+    std::for_each(mip_alts.begin(), mip_alts.end(), [&mip](auto a)
+    {
+        mip.colType(a, lemon::Mip::INTEGER);
+        mip.colLowerBound(a, 0);
+        mip.colUpperBound(a, 1);
+    });
+
+    uint32_t marker_id = 2u;
+    auto const & marker_dosages_in = markers_in.dosages[marker_id];
+    float dosages_sum = std::accumulate(marker_dosages_in.begin(), marker_dosages_in.end(), 0.0f);
+
+    dosages_t marker_dosages;
+    std::transform(marker_dosages_in.begin(), marker_dosages_in.end(), marker_dosages.begin(),
+                  [this, dosages_sum](auto d) { return n_samples * d / dosages_sum; });
+
+    // Constraint d - d_obs <= z.
+    // Constraint d_obs - d <= z.
+    for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
+    {
+        mip.addRow(mip_dosages[dosage] - marker_dosages[dosage] <= mip_z[dosage]);
+        mip.addRow(marker_dosages[dosage] - mip_dosages[dosage] <= mip_z[dosage]);
+    }
+
+    // Constraint d_p = Σ_s i_s,p.
+    for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
+    {
+        lemon::Mip::Expr i_sum;
+        for (uint32_t sample_id = 0; sample_id < n_samples; sample_id++)
+            i_sum += mip_indicators[sample_id][dosage];
+        mip.addRow(mip_dosages[dosage] == i_sum);
+    }
+
+    // Constraint Σ_p i_s,p = 1.
+    for (uint32_t sample_id = 0; sample_id < n_samples; sample_id++)
+    {
+        lemon::Mip::Expr i_sum;
+        for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
+            i_sum += mip_indicators[sample_id][dosage];
+        mip.addRow(i_sum == 1u);
+    }
+
+    // Constraint e_s,p >= Σ h(f) - p.
+    // Constraint e_s,p >= p - Σ h(f).
+    // Constraint i_s,p <= k * (1 - e_s,p).
+    for (uint32_t sample_id = 0; sample_id < n_samples; sample_id++)
+    {
+        lemon::Mip::Expr sample_sum;
+        for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; haplotype_id++)
+            sample_sum += mip_alts[founders_map[sample_id][haplotype_id]];
+
+        for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
+        {
+            mip.addRow(mip_errors[sample_id][dosage] >= dosage - sample_sum);
+            mip.addRow(mip_errors[sample_id][dosage] >= sample_sum - dosage);
+
+            mip.addRow(mip_errors[sample_id][dosage] <= n_ploidy * (1u - mip_indicators[sample_id][dosage]));
+        }
+    }
+
+    // Minimize Σ z.
+    lemon::Mip::Expr o = std::accumulate(mip_z.begin(), mip_z.end(), lemon::Mip::Expr());
+    mip.obj(o);
+    mip.min();
+//    mip.messageLevel(lemon::LpBase::MESSAGE_VERBOSE);
+    mip.solve();
+
+    SEQAN_ASSERT_EQ(mip.type(), lemon::MipSolver::OPTIMAL);
+
+    std::cerr << "DISTANCE: " << mip.solValue() << std::endl;
+
+    std::cerr << "DOSAGES IN: " << marker_dosages << std::endl;
+
+    typename dosages<n_ploidy>::type dosages_out;
+    std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_out.begin(), [&mip](auto d){ return mip.sol(d); });
+    std::cerr << "DOSAGES OUT: " << dosages_out << std::endl;
+
+    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
+
+    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto const & sample_errors)
+    {
+        dosages_t errors;
+        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [&mip](auto i){ return mip.sol(i); });
+        std::cerr << "ERRORS: " << errors << std::endl;
+    });
+
+    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
+
+    std::for_each(mip_indicators.begin(), mip_indicators.end(), [&mip](auto const & sample_indicators)
+    {
+        typename dosages<n_ploidy>::type indicators;
+        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [&mip](auto i){ return mip.sol(i); });
+        std::cerr << "INDICATORS: " << indicators << std::endl;
+    });
+
+    std::cerr << "=================================================================" << std::endl << std::endl;
+
+    // Update founder alleles.
+    std::transform(mip_alts.begin(), mip_alts.end(), founders_alts[marker_id].begin(), [&mip](auto a){ return mip.sol(a); });
+
+    std::for_each(founders_alts.begin(), founders_alts.end(), [](auto & founders_alt)
+    {
+        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
+    });
+    std::cerr << "=================================================================" << std::endl << std::endl;
+}
+
 // ----------------------------------------------------------------------------
 // Method population::assign_samples_alts()
 // ----------------------------------------------------------------------------
@@ -518,11 +692,11 @@ inline void population<n_ploidy>::assign_samples_alts()
     });
     std::cerr << "=================================================================" << std::endl << std::endl;
 
-    std::for_each(samples_alts.begin(), samples_alts.end(), [](auto & samples_alt)
-    {
-        std::cerr << "SAMPLES DOSAGES: " << alt_dosages<n_ploidy>(samples_alt) << std::endl;
-    });
-    std::cerr << "=================================================================" << std::endl << std::endl;
+//    std::for_each(samples_alts.begin(), samples_alts.end(), [](auto & samples_alt)
+//    {
+//        std::cerr << "SAMPLES DOSAGES: " << alt_dosages<n_ploidy>(samples_alt) << std::endl;
+//    });
+//    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
@@ -530,7 +704,7 @@ inline void population<n_ploidy>::assign_samples_alts()
 // ----------------------------------------------------------------------------
 
 template <uint8_t n_ploidy>
-inline void population<n_ploidy>::write(markers<n_ploidy> const & markers_in, std::string const & /* vcf_filename_out */)
+inline void population<n_ploidy>::write(std::string const & /* vcf_filename_out */)
 {
     // Open output file.
 //    seqan::VcfFileOut vcf_out(seqan::toCString(options.vcf_filename_out));
@@ -668,7 +842,7 @@ void run(app_options const & options)
     std::mt19937 generator(options.seed);
 
     markers<n_ploidy> markers_in;
-    population<n_ploidy> pop_out;
+    population<n_ploidy> pop_out(markers_in);
 
     uint32_t n_markers = options.n_markers;
 
@@ -685,7 +859,7 @@ void run(app_options const & options)
     pop_out.resize(options.n_founders, options.n_samples, n_markers);
     pop_out.simulate(generator);
 
-    pop_out.write(markers_in, options.vcf_filename_out);
+    pop_out.write(options.vcf_filename_out);
 }
 
 // ----------------------------------------------------------------------------
