@@ -451,7 +451,7 @@ private:
     inline void simulate_founders_alts(generator_t && generator);
 
     inline void fit_founders_alts();
-    inline void fit_founders_alts(uint32_t marker_id);
+    inline uint32_t fit_founders_alts(uint32_t marker_id);
 
     inline void assign_samples_alts();
 };
@@ -569,8 +569,11 @@ inline void population<n_ploidy>::simulate_founders_alts(generator_t && generato
 template <uint8_t n_ploidy>
 inline void population<n_ploidy>::fit_founders_alts()
 {
+    uint32_t distances = 0u;
     for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
-        fit_founders_alts(marker_id);
+        distances += fit_founders_alts(marker_id);
+
+    std::cerr << "DISTANCES: " << distances << std::endl;
 
     std::cerr << "=================================================================" << std::endl << std::endl;
 
@@ -586,7 +589,7 @@ inline void population<n_ploidy>::fit_founders_alts()
 // ----------------------------------------------------------------------------
 
 template <uint8_t n_ploidy>
-inline void population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
+inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 {
     typedef typename dosages<lemon::Mip::Col, n_ploidy>::type mip_cols_t;
 
@@ -707,8 +710,8 @@ inline void population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
     std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_out.begin(), [&mip](auto d){ return mip.sol(d); });
     std::cerr << "DISTANCE: " << mip.solValue() << " = " << std::make_pair(marker_dosages, dosages_out) << std::endl;
 
-//    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
-//
+    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+
 //    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto const & sample_errors)
 //    {
 //        dosages_t errors;
@@ -729,6 +732,8 @@ inline void population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 
     // Update founder alleles.
     std::transform(mip_alts.begin(), mip_alts.end(), founders_alts[marker_id].begin(), [&mip](auto a){ return mip.sol(a); });
+
+    return mip.solValue();
 }
 
 // ----------------------------------------------------------------------------
@@ -761,11 +766,14 @@ inline void population<n_ploidy>::assign_samples_alts()
 // ----------------------------------------------------------------------------
 
 template <uint8_t n_ploidy>
-inline void population<n_ploidy>::write(std::string const & /* vcf_filename_out */)
+inline void population<n_ploidy>::write(std::string const & vcf_filename_out)
 {
     // Open output file.
-//    seqan::VcfFileOut vcf_out(seqan::toCString(options.vcf_filename_out));
-    seqan::VcfFileOut vcf_out(std::cout, seqan::Vcf());
+    seqan::VcfFileOut vcf_out;
+    if (vcf_filename_out.empty())
+        seqan::open(vcf_out, std::cout, seqan::Vcf());
+    else
+        seqan::_open(vcf_out, vcf_filename_out.c_str(), seqan::DefaultOpenMode<seqan::VcfFileOut>::VALUE, seqan::True());
 
     // Fill contig names.
 //    contigNames(context(vcf_out)) = contigNames(context(vcf_in));
@@ -823,19 +831,19 @@ struct app_options
     std::string vcf_filename_in;
     std::string vcf_filename_out;
 
-    uint32_t seed;
-
     uint32_t n_ploidy;
     uint32_t n_founders;
     uint32_t n_samples;
     uint32_t n_markers;
 
+    uint32_t seed;
+
     app_options():
-        seed(0),
         n_ploidy(4),
         n_founders(1),
         n_samples(1),
-        n_markers(1)
+        n_markers(1),
+        seed(0)
     {}
 
     void setup(seqan::ArgumentParser & parser) const
@@ -849,13 +857,12 @@ struct app_options
 
         addUsageLine(parser, "[\\fIOPTIONS\\fP]");
 
-        addOption(parser, seqan::ArgParseOption("g", "seed", "Initial seed for pseudo-random number generation.",
-                                                seqan::ArgParseOption::INTEGER));
-        setMinValue(parser, "seed", "0");
-        setDefaultValue(parser, "seed", seed);
+        addOption(parser, seqan::ArgParseOption("i", "input-vcf", "Input VCF file.", seqan::ArgParseOption::INPUT_FILE));
+        setValidValues(parser, "input-vcf", seqan::VcfFileIn::getFileExtensions());
+        setRequired(parser, "input-vcf");
 
-        addOption(parser, seqan::ArgParseOption("v", "vcf", "Input VCF file.", seqan::ArgParseOption::INPUT_FILE));
-        setValidValues(parser, "vcf", seqan::VcfFileIn::getFileExtensions());
+        addOption(parser, seqan::ArgParseOption("o", "output-vcf", "Output VCF file.", seqan::ArgParseOption::OUTPUT_FILE));
+        setValidValues(parser, "output-vcf", seqan::VcfFileOut::getFileExtensions());
 
         addOption(parser, seqan::ArgParseOption("p", "ploidy", "Organism ploidy.",
                                                 seqan::ArgParseOption::INTEGER));
@@ -871,21 +878,28 @@ struct app_options
         addOption(parser, seqan::ArgParseOption("s", "samples", "Number of samples to simulate. Default: all samples in the input VCF file.",
                                                 seqan::ArgParseOption::INTEGER));
         setMinValue(parser, "samples", "1");
+        setDefaultValue(parser, "samples", n_samples);
 
         addOption(parser, seqan::ArgParseOption("m", "markers", "Number of markers to use. Default: all markers in the input VCF file.",
                                                 seqan::ArgParseOption::INTEGER));
         setMinValue(parser, "markers", "1");
+        setDefaultValue(parser, "markers", n_markers);
+
+        addOption(parser, seqan::ArgParseOption("g", "seed", "Initial seed for pseudo-random number generation.",
+                                                seqan::ArgParseOption::INTEGER));
+        setMinValue(parser, "seed", "0");
+        setDefaultValue(parser, "seed", seed);
     }
 
     void parse(seqan::ArgumentParser const & parser)
     {
-        getOptionValue(seed, parser, "seed");
-
-        getOptionValue(vcf_filename_in, parser, "vcf");
+        getOptionValue(vcf_filename_in, parser, "input-vcf");
+        getOptionValue(vcf_filename_out, parser, "output-vcf");
         getOptionValue(n_ploidy, parser, "ploidy");
         getOptionValue(n_founders, parser, "founders");
         getOptionValue(n_samples, parser, "samples");
         getOptionValue(n_markers, parser, "markers");
+        getOptionValue(seed, parser, "seed");
     }
 };
 
