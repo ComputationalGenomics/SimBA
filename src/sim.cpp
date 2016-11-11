@@ -141,18 +141,18 @@ std::ostream& operator<<(std::ostream & s, boost::multi_array<T, SIZE> const & m
 // ----------------------------------------------------------------------------
 // Read ref/alt strings.
 
-template <typename alleles_t>
-inline void read_alleles(alleles_t & alleles, seqan::VcfRecord const & record)
-{
+//template <typename alleles_t>
+//inline void read_alleles(alleles_t & alleles, seqan::VcfRecord const & record)
+//{
 //    front(alleles) = record.ref;
 //    clear(back(alleles));
 //    auto alleles_it = directionIterator(record.alt, seqan::Input());
 //    seqan::readUntil(back(alleles), alleles_it, seqan::EqualsChar<','>());
-
-    clear(alleles);
-    appendValue(alleles, record.ref);
-    strSplit(alleles, record.alt, seqan::EqualsChar<','>());
-}
+//
+//    clear(alleles);
+//    appendValue(alleles, record.ref);
+//    strSplit(alleles, record.alt, seqan::EqualsChar<','>());
+//}
 
 // ----------------------------------------------------------------------------
 // Function read_genotype()
@@ -220,23 +220,10 @@ inline bool is_unknown(genotype_t const & genotype)
 // Function alt_dosage()
 // ----------------------------------------------------------------------------
 
-//template <typename alt_t>
-//struct alt_allele
-//{
-//    static const bool value = true;
-//};
-//
-//template <>
-//struct alt_allele<char>
-//{
-//    static const char value = '1';
-//};
-
 template <typename genotype_t>
 inline uint32_t alt_dosage(genotype_t const & genotype)
 {
     return std::count(genotype.begin(), genotype.end(), '1');
-//    return std::count(genotype.begin(), genotype.end(), alt_allele<typename genotype_t::value_type>::value);
 }
 
 // ============================================================================
@@ -244,375 +231,320 @@ inline uint32_t alt_dosage(genotype_t const & genotype)
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// Metafunction dosages<>::type
+// Type dosages_distribution
 // ----------------------------------------------------------------------------
+// dosages_distribution = [f(0),f(1),...,f(p)]
 
 template <typename value_t, uint32_t n_ploidy>
-struct dosages
-{
-    typedef std::array<value_t, n_ploidy + 1u> type;
-};
+using dosages_distribution = std::array<value_t, n_ploidy + 1u>;
 
 // ----------------------------------------------------------------------------
-// Function alt_dosages()
+// Function alt_dosages_distribution()
 // ----------------------------------------------------------------------------
 
 template <typename value_t, uint32_t n_ploidy, typename genotypes_t>
-inline typename dosages<value_t, n_ploidy>::type alt_dosages(genotypes_t const & genotypes)
+inline dosages_distribution<value_t, n_ploidy> alt_dosages_distribution(genotypes_t const & genotypes)
 {
-    typename dosages<value_t, n_ploidy>::type dosages;
+    dosages_distribution<value_t, n_ploidy> dosages_d;
 
-    std::fill(dosages.begin(), dosages.end(), 0u);
+    std::fill(dosages_d.begin(), dosages_d.end(), 0u);
 
     for (auto const & genotype : genotypes)
-        dosages[alt_dosage(genotype)]++;
+        dosages_d[alt_dosage(genotype)]++;
 
-    return dosages;
+    return dosages_d;
 }
 
-// ============================================================================
-// Markers
-// ============================================================================
-
 // ----------------------------------------------------------------------------
-// Class markers
+// Function normalize_dosages_distribution()
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy>
-struct markers
+template <typename dosages_distribution_t>
+inline void normalize_dosages_distribution(dosages_distribution_t & dosages_d, uint32_t n_samples)
 {
-    typedef std::pair<uint32_t, uint32_t> position_t;
-//    typedef std::array<seqan::IupacString, 2> alleles_t;
-    typedef seqan::StringSet<seqan::IupacString, seqan::Owner<seqan::ConcatDirect<>>> alleles_t;
-    typedef typename dosages<float, n_ploidy>::type dosages_t;
-
-    std::vector<position_t> positions; // positions[m] = (chr, pos)
-    std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
-    std::vector<dosages_t> dosages;    // dosages[m] = [f(0),f(1),...,f(p)]
-
-    inline void read(std::string const & vcf_filename_in);
-
-    template <typename generator_t>
-    inline void simulate(uint32_t n_samples, uint32_t n_markers, generator_t && generator);
-
-    inline void normalize(uint32_t n_samples);
-};
+    auto dosages_sum = std::accumulate(dosages_d.begin(), dosages_d.end(), 0.0f);
+    std::transform(dosages_d.begin(), dosages_d.end(), dosages_d.begin(),
+                  [n_samples, dosages_sum](auto d) { return n_samples * d / dosages_sum; });
+}
 
 // ----------------------------------------------------------------------------
-// Method markers::read()
+// Type dosages_vector
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy>
-inline void markers<n_ploidy>::read(std::string const & vcf_filename_in)
+template <typename value_t, uint32_t n_ploidy>
+using dosages_vector = std::vector<dosages_distribution<value_t, n_ploidy>>;
+
+// ----------------------------------------------------------------------------
+// Function normalize_dosages_vector()
+// ----------------------------------------------------------------------------
+
+template <typename dosages_vector_t>
+inline void normalize_dosages_vector(dosages_vector_t & dosages_v, uint32_t n_samples)
 {
-    typedef markers::position_t position_t;
-    typedef markers::alleles_t alleles_t;
-    typedef markers::dosages_t dosages_t;
-    typedef std::vector<char> genotype_t;
-
-    position_t position;
-    alleles_t alleles;
-    dosages_t dosages;
-    genotype_t genotype;
-
-    seqan::VcfHeader vcf_header;
-    seqan::VcfRecord vcf_record;
-
-    seqan::VcfFileIn vcf_file_in(vcf_filename_in.c_str());
-    readHeader(vcf_header, vcf_file_in);
-
-    while (!atEnd(vcf_file_in))
+    std::for_each(dosages_v.begin(), dosages_v.end(), [n_samples](auto & dosages_d)
     {
-        readRecord(vcf_record, vcf_file_in);
-
-        position_t position = std::make_pair(vcf_record.rID, vcf_record.beginPos);
-        read_alleles(alleles, vcf_record);
-
-        if (length(alleles) > 2)
-        {
-            std::cerr << "INPUT VARIANT @ " << position << " POLYALLELIC" << std::endl;
-            continue;
-        }
-
-//        dosages.resize(n_ploidy);
-        std::fill(dosages.begin(), dosages.end(), 0u);
-
-        // Read all sample genotypes.
-        for (auto const & genotype_info : vcf_record.genotypeInfos)
-        {
-            read_genotype(genotype, genotype_info);
-
-            // Skip unknown genotypes.
-            if (is_unknown(genotype))
-            {
-                std::cerr << "INPUT GENOTYPE @ " << position << " UNKNOWN" << std::endl;
-                continue;
-            }
-
-            // Stop on wrong ploidy.
-            if (get_ploidy(genotype) != n_ploidy)
-                throw seqan::IOError("Input ploidy does not match VCF genotypes");
-
-            dosages[alt_dosage(genotype)]++;
-        }
-
-        this->positions.push_back(position);
-        this->alleles.push_back(alleles);
-        this->dosages.push_back(dosages);
-
-        std::cerr << "INPUT DOSAGES @ " << position << " # " << dosages << std::endl;
-    }
-
-    std::cerr << "=================================================================" << std::endl << std::endl;
-}
-
-// ----------------------------------------------------------------------------
-// Method markers::simulate()
-// ----------------------------------------------------------------------------
-
-template <uint8_t n_ploidy> template <typename generator_t>
-inline void markers<n_ploidy>::simulate(uint32_t n_samples, uint32_t n_markers, generator_t && generator)
-{
-    seqan::ignoreUnusedVariableWarning(n_samples);
-    seqan::ignoreUnusedVariableWarning(n_markers);
-    seqan::ignoreUnusedVariableWarning(generator);
-}
-
-// ----------------------------------------------------------------------------
-// Method markers::normalize()
-// ----------------------------------------------------------------------------
-
-template <uint8_t n_ploidy>
-inline void markers<n_ploidy>::normalize(uint32_t n_samples)
-{
-    std::for_each(dosages.begin(), dosages.end(), [this, n_samples](auto & marker_dosages)
-    {
-        auto dosages_sum = std::accumulate(marker_dosages.begin(), marker_dosages.end(), 0.0f);
-        std::transform(marker_dosages.begin(), marker_dosages.end(), marker_dosages.begin(),
-                      [n_samples, dosages_sum](auto d) { return n_samples * d / dosages_sum; });
+        normalize_dosages_distribution(dosages_d, n_samples);
     });
 }
 
 // ============================================================================
-// Population
+// Variants
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// Class population
+// Class variants
 // ----------------------------------------------------------------------------
+// Chromosomal position and ref/alt strings.
 
-template <uint8_t n_ploidy>
-struct population
+class variants
 {
-private:
-    typedef std::vector<uint16_t> founder_alt_t;
-    typedef std::array<reference_view<uint16_t>, n_ploidy> sample_alt_t;
-    typedef std::vector<sample_alt_t> samples_alt_t;
-
 public:
-    typedef std::vector<uint32_t> founders_freqs_t;         // [founder]
-    typedef boost::multi_array<uint32_t, 2> founders_map_t; // [sample][haplotype]
-    typedef std::vector<founder_alt_t> founders_alts_t;     // [marker][founder]
-    typedef std::vector<samples_alt_t> samples_alts_t;      // [marker][sample][haplotype]
+    typedef std::pair<uint32_t, uint32_t> position_t;
+    typedef std::array<seqan::IupacString, 2> alleles_t;
 
-    inline void resize(uint32_t n_founders, uint32_t n_samples, uint32_t n_markers);
-
-    template <typename generator_t>
-    inline void simulate(generator_t && generator);
-
-    inline void write(std::string const & vcf_filename_out);
-
-    population(markers<n_ploidy> const & markers_in) :
-        markers_in(markers_in),
-        n_founders(),
-        n_samples(),
-        n_markers()
-    {}
-
-private:
-    markers<n_ploidy> const & markers_in;
-
-    founders_freqs_t founders_freqs;
-    founders_map_t founders_map;
-    founders_alts_t founders_alts;
-    samples_alts_t samples_alts;
-
-    uint32_t n_founders;
-    uint32_t n_samples;
-    uint32_t n_markers;
-
-    template <typename generator_t>
-    inline void simulate_founders_freqs(generator_t && generator);
-
-    template <typename generator_t>
-    inline void simulate_founders_map(generator_t && generator);
-
-    template <typename generator_t>
-    inline void simulate_founders_alts(generator_t && generator);
-
-    inline void fit_founders_alts();
-    inline uint32_t fit_founders_alts(uint32_t marker_id);
-
-    inline void assign_samples_alts();
+    std::vector<position_t> positions; // positions[m] = (chr, pos)
+    std::vector<alleles_t> alleles;    // alleles[m] = (ref, alt)
 };
 
 // ----------------------------------------------------------------------------
-// Method population::resize()
+// Function simulate_variant_positions()
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy>
-inline void population<n_ploidy>::resize(uint32_t n_founders, uint32_t n_samples, uint32_t n_markers)
+template <typename positions_vector_t, typename generator_t>
+inline void simulate_variant_positions(positions_vector_t & positions_v, generator_t && generator)
+{
+    seqan::ignoreUnusedVariableWarning(positions_v);
+    seqan::ignoreUnusedVariableWarning(generator);
+}
+
+// ----------------------------------------------------------------------------
+// Function simulate_variant_alleles()
+// ----------------------------------------------------------------------------
+
+// ============================================================================
+// Contig names
+// ============================================================================
+
+typedef typename seqan::FormattedFileContext<seqan::VcfFileIn, void>::TNameStore contig_names_store;
+
+// ============================================================================
+// Founders
+// ============================================================================
+
+typedef std::vector<uint32_t> founders_distribution;
+
+// ----------------------------------------------------------------------------
+// Function simulate_founders_distribution()
+// ----------------------------------------------------------------------------
+
+template <typename founders_distribution_t, typename generator_t>
+inline void simulate_founders_distribution(founders_distribution_t & founders_d,
+                                           uint32_t n_founders,
+                                           uint32_t n_samples,
+                                           uint8_t n_ploidy,
+                                           generator_t && generator)
 {
     SEQAN_ASSERT_GT(n_samples, 0u);
     SEQAN_ASSERT_LEQ(n_founders, n_samples * n_ploidy);
-    SEQAN_ASSERT_GT(n_markers, 0u);
 
-    this->n_founders = n_founders;
-    this->n_samples = n_samples;
-    this->n_markers = n_markers;
-
-    founders_freqs.resize(n_founders, 1u);
-    founders_map.resize(boost::extents[n_samples][n_ploidy]);
-    founders_alts.resize(n_markers, founder_alt_t(n_founders));
-    samples_alts.resize(n_markers, samples_alt_t(n_samples));
-}
-
-// ----------------------------------------------------------------------------
-// Method population::simulate()
-// ----------------------------------------------------------------------------
-
-template <uint8_t n_ploidy> template <typename generator_t>
-inline void population<n_ploidy>::simulate(generator_t && generator)
-{
-    simulate_founders_freqs(generator);
-    simulate_founders_map(generator);
-
-//    simulate_founders_alts(generator);
-    fit_founders_alts();
-
-    assign_samples_alts();
-}
-
-// ----------------------------------------------------------------------------
-// Method population::simulate_founders_freqs()
-// ----------------------------------------------------------------------------
-
-template <uint8_t n_ploidy> template <typename generator_t>
-inline void population<n_ploidy>::simulate_founders_freqs(generator_t && generator)
-{
-    SEQAN_ASSERT_EQ(founders_freqs.size(), n_founders);
+    founders_d.resize(n_founders, 1u);
 
     std::uniform_int_distribution<uint32_t> distribution(0u, n_founders - 1);
 //    std::normal_distribution<uint32_t> distribution(0u, n_founders - 1);
 
     for (uint32_t i = 0; i < n_samples * n_ploidy - n_founders; i++)
-        founders_freqs[distribution(generator)]++;
+        founders_d[distribution(generator)]++;
 
-    std::cerr << "FOUNDERS FREQUENCIES: " << founders_freqs << std::endl;
+    std::cerr << "FOUNDERS DISTRIBUTION: " << founders_d << std::endl;
     std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
+// ============================================================================
+// Haplotypes map
+// ============================================================================
+// Map: Sample X Haplotype -> Founder.
+
+typedef boost::multi_array<uint32_t, 2> haplotypes_map; // [sample][haplotype]
+
 // ----------------------------------------------------------------------------
-// Method population::simulate_founders_map()
+// Function simulate_haplotypes_map()
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy> template <typename generator_t>
-inline void population<n_ploidy>::simulate_founders_map(generator_t && generator)
+template <typename haplotypes_map_t, typename founders_distribution_t, typename generator_t>
+inline void simulate_haplotypes_map(haplotypes_map_t & haplotypes_m,
+                                    founders_distribution_t const & founders_d,
+                                    uint32_t n_samples,
+                                    uint8_t n_ploidy,
+                                    generator_t && generator)
 {
-    SEQAN_ASSERT_EQ(founders_map.num_elements(), n_samples * n_ploidy);
-    SEQAN_ASSERT_EQ(std::accumulate(founders_freqs.begin(), founders_freqs.end(), 0u), n_samples * n_ploidy);
+    SEQAN_ASSERT_EQ(std::accumulate(founders_d.begin(), founders_d.end(), 0u), n_samples * n_ploidy);
+//    SEQAN_ASSERT_EQ(haplotypes_m.num_elements(), n_samples * n_ploidy);
 
-    auto founders_map_begin = founders_map.data();
-    auto founders_map_it = founders_map.data();
-    auto founders_map_end = founders_map.data() + founders_map.num_elements();
-    for (auto founders_freqs_it = founders_freqs.begin(); founders_freqs_it != founders_freqs.end(); ++founders_freqs_it)
-        founders_map_it = std::fill_n(founders_map_it, *founders_freqs_it, founders_freqs_it - founders_freqs.begin());
-    SEQAN_ASSERT(founders_map_it == founders_map_end);
+    haplotypes_m.resize(boost::extents[n_samples][n_ploidy]);
 
-    std::shuffle(founders_map_begin, founders_map_end, generator);
+    auto haplotypes_m_begin = haplotypes_m.data();
+    auto haplotypes_m_it = haplotypes_m.data();
+    auto haplotypes_m_end = haplotypes_m.data() + haplotypes_m.num_elements();
+    for (auto founders_d_it = founders_d.begin(); founders_d_it != founders_d.end(); ++founders_d_it)
+        haplotypes_m_it = std::fill_n(haplotypes_m_it, *founders_d_it, founders_d_it - founders_d.begin());
+    SEQAN_ASSERT(haplotypes_m_it == haplotypes_m_end);
 
-    std::cerr << "FOUNDERS MAP: " << founders_map << std::endl;
+    std::shuffle(haplotypes_m_begin, haplotypes_m_end, generator);
+
+    std::cerr << "HAPLOTYPES MAP: " << haplotypes_m << std::endl;
     std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
+// ============================================================================
+// Haplotypes
+// ============================================================================
+
 // ----------------------------------------------------------------------------
-// Method population::simulate_founders_alts()
+// Type founders_alts_vector
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy> template <typename generator_t>
-inline void population<n_ploidy>::simulate_founders_alts(generator_t && generator)
+typedef std::vector<uint16_t> founders_alts; // [founder]
+typedef std::vector<founders_alts> founders_alts_vector; // [marker][founder]
+
+// ----------------------------------------------------------------------------
+// Type samples_alts_vector
+// ----------------------------------------------------------------------------
+// View: Allele[Sample, Haplotype] -> Allele[Founder].
+
+template <uint32_t n_ploidy>
+using haplotypes_alts = std::array<reference_view<uint16_t>, n_ploidy>; // [haplotype]
+
+template <uint32_t n_ploidy>
+using samples_alts = std::vector<haplotypes_alts<n_ploidy>>; // [sample][haplotype]
+
+template <uint32_t n_ploidy>
+using samples_alts_vector = std::vector<samples_alts<n_ploidy>>; // [marker][sample][haplotype]
+
+// ----------------------------------------------------------------------------
+// Function view_samples_alts_vector()
+// ----------------------------------------------------------------------------
+
+template <typename samples_alts_vector_t, typename founders_alts_vector_t, typename haplotypes_map_t>
+inline void view_samples_alts_vector(samples_alts_vector_t & samples_alts_v,
+                                     founders_alts_vector_t & founders_alts_v,
+                                     haplotypes_map_t const & haplotypes_m)
 {
-    std::bernoulli_distribution distribution;
+    typedef typename samples_alts_vector_t::value_type samples_alts_t;
 
-    // For each marker.
-    std::for_each(founders_alts.begin(), founders_alts.end(), [&distribution, &generator](auto & founders_alt)
-    {
-        // Generate alleles for all founders.
-        std::generate(founders_alt.begin(), founders_alt.end(), [&distribution, &generator]()
-        {
-            return distribution(generator);
-        });
-    });
+    uint32_t n_markers = founders_alts_v.size();
+    uint32_t n_samples = haplotypes_m.size();
+    uint32_t n_ploidy = haplotypes_m.shape()[1];
 
-    std::for_each(founders_alts.begin(), founders_alts.end(), [](auto & founders_alt)
-    {
-        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
-    });
-    std::cerr << "=================================================================" << std::endl << std::endl;
-}
+    samples_alts_v.resize(n_markers, samples_alts_t(n_samples));
 
-
-// ----------------------------------------------------------------------------
-// Method population::fit_founders_alts()
-// ----------------------------------------------------------------------------
-
-template <uint8_t n_ploidy>
-inline void population<n_ploidy>::fit_founders_alts()
-{
-    uint32_t distances = 0u;
     for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
-        distances += fit_founders_alts(marker_id);
+        for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
+            for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; ++haplotype_id)
+                samples_alts_v[marker_id][sample_id][haplotype_id] = founders_alts_v[marker_id][haplotypes_m[sample_id][haplotype_id]];
 
-    std::cerr << "DISTANCES: " << distances << std::endl;
-
-    std::cerr << "=================================================================" << std::endl << std::endl;
-
-    std::for_each(founders_alts.begin(), founders_alts.end(), [](auto & founders_alt)
+    std::for_each(samples_alts_v.begin(), samples_alts_v.end(), [](auto & samples_alts_m)
     {
-        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
+        std::cerr << "SAMPLES ALLELE: " << samples_alts_m << std::endl;
     });
     std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
+// ============================================================================
+// Fitting
+// ============================================================================
+
 // ----------------------------------------------------------------------------
-// Method population::fit_founders_alts()
+// Class random_fitting
+// ----------------------------------------------------------------------------
+
+template <typename generator_t>
+class random_fitting
+{
+public:
+    template <typename founders_alts_t, typename dosages_distribution_t>
+    inline float fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d);
+
+    random_fitting(generator_t & generator) :
+        generator(generator)
+    {}
+
+private:
+    generator_t & generator;
+    std::bernoulli_distribution distribution;
+};
+
+// ----------------------------------------------------------------------------
+// Method random_fitting::fit()
+// ----------------------------------------------------------------------------
+
+template <typename generator_t> template <typename founders_alts_t, typename dosages_distribution_t>
+inline float random_fitting<generator_t>::fit(founders_alts_t & founders_alts, dosages_distribution_t const & /* dosages_d_in */)
+{
+    std::generate(founders_alts.begin(), founders_alts.end(), [this]()
+    {
+        return distribution(generator);
+    });
+
+    return 0.0;
+}
+
+// ----------------------------------------------------------------------------
+// Class mip_fitting
 // ----------------------------------------------------------------------------
 
 template <uint8_t n_ploidy>
-inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
+class mip_fitting
 {
-    typedef typename dosages<lemon::Mip::Col, n_ploidy>::type mip_cols_t;
+public:
+    mip_fitting(haplotypes_map const & haplotypes_m, uint32_t n_founders) :
+        haplotypes_m(haplotypes_m)
+    {
+        init(n_founders);
+    }
+
+    template <typename founders_alts_t, typename dosages_distribution_t>
+    inline float fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d);
+
+private:
+    typedef dosages_distribution<lemon::Mip::Col, n_ploidy> mip_cols_t;
+    typedef dosages_distribution<lemon::Mip::Row, n_ploidy> mip_rows_t;
 
     lemon::Mip mip;
     mip_cols_t mip_z;                       // [dosage]
     mip_cols_t mip_dosages;                 // [dosage]
+    mip_rows_t mip_dosages_plus;            // [dosage]
+    mip_rows_t mip_dosages_minus;           // [dosage]
     std::vector<mip_cols_t> mip_errors;     // [sample][dosage]
     std::vector<mip_cols_t> mip_indicators; // [sample][dosage]
     std::vector<lemon::Mip::Col> mip_alts;  // [founder]
 
-    auto const & marker_dosages = markers_in.dosages[marker_id];
+    haplotypes_map const & haplotypes_m;
+
+    inline void init(uint32_t n_founders);
+};
+
+// ----------------------------------------------------------------------------
+// Method mip_fitting::init()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
+inline void mip_fitting<n_ploidy>::init(uint32_t n_founders)
+{
+    auto n_samples = haplotypes_m.size();
 
     // Vector z to linearize l1-norm objective.
-    std::generate(mip_z.begin(), mip_z.end(), [&mip]() { return mip.addCol(); });
-    std::for_each(mip_z.begin(), mip_z.end(), [&mip](auto z)
+    SEQAN_ASSERT_EQ(mip_dosages.size(), n_ploidy + 1u);
+    std::generate(mip_z.begin(), mip_z.end(), [this]() { return mip.addCol(); });
+    std::for_each(mip_z.begin(), mip_z.end(), [this](auto z)
     {
         mip.colType(z, lemon::Mip::REAL);
         mip.colLowerBound(z, 0);
     });
 
     // Dosages d.
-    std::generate(mip_dosages.begin(), mip_dosages.end(), [&mip]() { return mip.addCol(); });
-    std::for_each(mip_dosages.begin(), mip_dosages.end(), [&mip](auto d)
+    SEQAN_ASSERT_EQ(mip_dosages.size(), n_ploidy + 1u);
+    std::generate(mip_dosages.begin(), mip_dosages.end(), [this]() { return mip.addCol(); });
+    std::for_each(mip_dosages.begin(), mip_dosages.end(), [this](auto d)
     {
         mip.colType(d, lemon::Mip::INTEGER);
         mip.colLowerBound(d, 0);
@@ -620,10 +552,10 @@ inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 
     // Dosage absolute errors e_s,p.
     mip_errors.resize(n_samples);
-    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto & mip_sample)
+    std::for_each(mip_errors.begin(), mip_errors.end(), [this](auto & mip_sample)
     {
-        std::generate(mip_sample.begin(), mip_sample.end(), [&mip]() { return mip.addCol(); });
-        std::for_each(mip_sample.begin(), mip_sample.end(), [&mip](auto e)
+        std::generate(mip_sample.begin(), mip_sample.end(), [this]() { return mip.addCol(); });
+        std::for_each(mip_sample.begin(), mip_sample.end(), [this](auto e)
         {
             mip.colType(e, lemon::Mip::REAL);
             mip.colLowerBound(e, 0);
@@ -632,10 +564,10 @@ inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 
     // Dosage indicators i_s,p.
     mip_indicators.resize(n_samples);
-    std::for_each(mip_indicators.begin(), mip_indicators.end(), [&mip](auto & mip_sample)
+    std::for_each(mip_indicators.begin(), mip_indicators.end(), [this](auto & mip_sample)
     {
-        std::generate(mip_sample.begin(), mip_sample.end(), [&mip]() { return mip.addCol(); });
-        std::for_each(mip_sample.begin(), mip_sample.end(), [&mip](auto i)
+        std::generate(mip_sample.begin(), mip_sample.end(), [this]() { return mip.addCol(); });
+        std::for_each(mip_sample.begin(), mip_sample.end(), [this](auto i)
         {
             mip.colType(i, lemon::Mip::INTEGER);
             mip.colLowerBound(i, 0);
@@ -645,21 +577,13 @@ inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
 
     // Founder alleles f.
     mip_alts.resize(n_founders);
-    std::generate(mip_alts.begin(), mip_alts.end(), [&mip]() { return mip.addCol(); });
-    std::for_each(mip_alts.begin(), mip_alts.end(), [&mip](auto a)
+    std::generate(mip_alts.begin(), mip_alts.end(), [this]() { return mip.addCol(); });
+    std::for_each(mip_alts.begin(), mip_alts.end(), [this](auto a)
     {
         mip.colType(a, lemon::Mip::INTEGER);
         mip.colLowerBound(a, 0);
         mip.colUpperBound(a, 1);
     });
-
-    // Constraint d - d_obs <= z.
-    // Constraint d_obs - d <= z.
-    for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
-    {
-        mip.addRow(mip_dosages[dosage] - marker_dosages[dosage] <= mip_z[dosage]);
-        mip.addRow(marker_dosages[dosage] - mip_dosages[dosage] <= mip_z[dosage]);
-    }
 
     // Constraint d_p = Σ_s i_s,p.
     for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
@@ -686,7 +610,7 @@ inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
     {
         lemon::Mip::Expr sample_sum;
         for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; haplotype_id++)
-            sample_sum += mip_alts[founders_map[sample_id][haplotype_id]];
+            sample_sum += mip_alts[haplotypes_m[sample_id][haplotype_id]];
 
         for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
         {
@@ -701,97 +625,209 @@ inline uint32_t population<n_ploidy>::fit_founders_alts(uint32_t marker_id)
     lemon::Mip::Expr o = std::accumulate(mip_z.begin(), mip_z.end(), lemon::Mip::Expr());
     mip.obj(o);
     mip.min();
+}
+
+// ----------------------------------------------------------------------------
+// Method mip_fitting::fit()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy> template <typename founders_alts_t, typename dosages_distribution_t>
+inline float mip_fitting<n_ploidy>::fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d_in)
+{
+    // Constraint d - d_obs <= z.
+    // Constraint d_obs - d <= z.
+    for (uint8_t dosage = 0; dosage < n_ploidy + 1; dosage++)
+    {
+        mip_dosages_plus[dosage] = mip.addRow(mip_dosages[dosage] - dosages_d_in[dosage] <= mip_z[dosage]);
+        mip_dosages_minus[dosage] = mip.addRow(dosages_d_in[dosage] - mip_dosages[dosage] <= mip_z[dosage]);
+    }
+
 //    mip.messageLevel(lemon::LpBase::MESSAGE_VERBOSE);
     mip.solve();
-
     SEQAN_ASSERT_EQ(mip.type(), lemon::MipSolver::OPTIMAL);
+    float distance = mip.solValue();
 
-    typename dosages<uint32_t, n_ploidy>::type dosages_out;
-    std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_out.begin(), [&mip](auto d){ return mip.sol(d); });
-    std::cerr << "DISTANCE: " << mip.solValue() << " = " << std::make_pair(marker_dosages, dosages_out) << std::endl;
+    dosages_distribution<uint32_t, n_ploidy> dosages_d_out;
+    std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_d_out.begin(), [this](auto d){ return mip.sol(d); });
+    std::cerr << "DISTANCE: " << distance << " = " << std::make_pair(dosages_d_in, dosages_d_out) << std::endl;
 
-    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+//    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
 
-//    std::for_each(mip_errors.begin(), mip_errors.end(), [&mip](auto const & sample_errors)
+//    std::for_each(mip_errors.begin(), mip_errors.end(), [this](auto const & sample_errors)
 //    {
 //        dosages_t errors;
-//        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [&mip](auto i){ return mip.sol(i); });
+//        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [this](auto i){ return mip.sol(i); });
 //        std::cerr << "ERRORS: " << errors << std::endl;
 //    });
 //
 //    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
 //
-//    std::for_each(mip_indicators.begin(), mip_indicators.end(), [&mip](auto const & sample_indicators)
+//    std::for_each(mip_indicators.begin(), mip_indicators.end(), [this](auto const & sample_indicators)
 //    {
 //        typename dosages<bool, n_ploidy>::type indicators;
-//        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [&mip](auto i){ return mip.sol(i); });
+//        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [this](auto i){ return mip.sol(i); });
 //        std::cerr << "INDICATORS: " << indicators << std::endl;
 //    });
 //
 //    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
 
     // Update founder alleles.
-    std::transform(mip_alts.begin(), mip_alts.end(), founders_alts[marker_id].begin(), [&mip](auto a){ return mip.sol(a); });
+    std::transform(mip_alts.begin(), mip_alts.end(), founders_alts.begin(), [this](auto a){ return mip.sol(a); });
 
-    return mip.solValue();
+    // Remove dosage constraints.
+    std::for_each(mip_dosages_plus.begin(), mip_dosages_plus.end(), [this](auto row) { mip.erase(row); });
+    std::for_each(mip_dosages_minus.begin(), mip_dosages_minus.end(), [this](auto row) { mip.erase(row); });
+
+    return distance;
 }
 
 // ----------------------------------------------------------------------------
-// Method population::assign_samples_alts()
+// Function fit_founders_alts_vector()
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy>
-inline void population<n_ploidy>::assign_samples_alts()
+template <typename fitting_t, typename founders_alts_vector_t, typename dosages_vector_t>
+inline void fit_founders_alts_vector(fitting_t & fitting, founders_alts_vector_t & founders_alts_v, dosages_vector_t const & dosages_v)
 {
-    for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
-        for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
-            for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; ++haplotype_id)
-                samples_alts[marker_id][sample_id][haplotype_id] = founders_alts[marker_id][founders_map[sample_id][haplotype_id]];
+    uint32_t n_markers = founders_alts_v.size();
 
-    std::for_each(samples_alts.begin(), samples_alts.end(), [](auto & samples_alt)
-    {
-        std::cerr << "SAMPLES ALLELE: " << samples_alt << std::endl;
-    });
+    float distances = 0u;
+    for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
+        distances += fitting.fit(founders_alts_v[marker_id], dosages_v[marker_id]);
+
+    std::cerr << "DISTANCES: " << distances << std::endl;
+
     std::cerr << "=================================================================" << std::endl << std::endl;
 
-//    std::for_each(samples_alts.begin(), samples_alts.end(), [](auto & samples_alt)
-//    {
-//        std::cerr << "SAMPLES DOSAGES: " << alt_dosages<n_ploidy>(samples_alt) << std::endl;
-//    });
-//    std::cerr << "=================================================================" << std::endl << std::endl;
+    std::for_each(founders_alts_v.begin(), founders_alts_v.end(), [](auto & founders_alt)
+    {
+        std::cerr << "FOUNDERS ALLELE: " << founders_alt << std::endl;
+    });
+    std::cerr << "=================================================================" << std::endl << std::endl;
+}
+
+// ============================================================================
+// VCF I/O
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Function read_vcf()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy, typename contig_names_store_t, typename variants_t, typename dosages_vector_t>
+inline void read_vcf(contig_names_store_t & contig_names,
+                     variants_t & variants,
+                     dosages_vector_t & dosages_v,
+                     std::string const & vcf_filename_in)
+{
+    typedef typename variants_t::position_t position_t;
+    typedef typename variants_t::alleles_t alleles_t;
+    typedef typename dosages_vector_t::value_type dosages_distribution_t;
+
+    typedef std::vector<char> genotype_t;
+
+    position_t position;
+    alleles_t alleles;
+    dosages_distribution_t dosages_d;
+    genotype_t genotype;
+
+    seqan::VcfHeader vcf_header;
+    seqan::VcfRecord vcf_record;
+
+    seqan::VcfFileIn vcf_file_in(vcf_filename_in.c_str());
+    readHeader(vcf_header, vcf_file_in);
+
+    while (!atEnd(vcf_file_in))
+    {
+        readRecord(vcf_record, vcf_file_in);
+
+        position_t position = std::make_pair(vcf_record.rID, vcf_record.beginPos);
+
+        front(alleles) = vcf_record.ref;
+        clear(back(alleles));
+        auto alleles_it = directionIterator(vcf_record.alt, seqan::Input());
+        seqan::readUntil(back(alleles), alleles_it, seqan::EqualsChar<','>());
+
+        if (!seqan::atEnd(alleles_it))
+        {
+            std::cerr << "INPUT VARIANT @ " << position << " POLYALLELIC" << std::endl;
+            continue;
+        }
+
+        SEQAN_ASSERT_EQ(dosages_d.size(), n_ploidy + 1u);
+        std::fill(dosages_d.begin(), dosages_d.end(), 0u);
+
+        // Read all sample genotypes.
+        for (auto const & genotype_info : vcf_record.genotypeInfos)
+        {
+            read_genotype(genotype, genotype_info);
+
+            // Skip unknown genotypes.
+            if (is_unknown(genotype))
+            {
+                std::cerr << "INPUT GENOTYPE @ " << position << " UNKNOWN" << std::endl;
+                continue;
+            }
+
+            // Stop on wrong ploidy.
+            if (get_ploidy(genotype) != n_ploidy)
+                throw seqan::IOError("Input ploidy does not match VCF genotypes");
+
+            dosages_d[alt_dosage(genotype)]++;
+        }
+
+        variants.positions.push_back(position);
+        variants.alleles.push_back(alleles);
+        dosages_v.push_back(dosages_d);
+
+        std::cerr << "INPUT DOSAGES @ " << position << " # " << dosages_d << std::endl;
+    }
+
+    contig_names = contigNames(context(vcf_file_in));
+
+    std::cerr << "=================================================================" << std::endl << std::endl;
 }
 
 // ----------------------------------------------------------------------------
-// Method population::write()
+// Function write_vcf()
 // ----------------------------------------------------------------------------
 
-template <uint8_t n_ploidy>
-inline void population<n_ploidy>::write(std::string const & vcf_filename_out)
+template <typename contig_names_store_t, typename variants_t, typename samples_alts_vector_t>
+inline void write_vcf(contig_names_store_t const & contig_names,
+                      variants_t const & variants,
+                      samples_alts_vector_t const & samples_alts_v,
+                      std::string const & vcf_filename_out)
 {
+    uint32_t n_markers = samples_alts_v.size();
+    uint32_t n_samples = samples_alts_v.front().size();
+
     // Open output file.
-    seqan::VcfFileOut vcf_out;
+    seqan::VcfFileOut vcf_file_out;
     if (vcf_filename_out.empty())
-        seqan::open(vcf_out, std::cout, seqan::Vcf());
+        seqan::open(vcf_file_out, std::cout, seqan::Vcf());
     else
-        seqan::_open(vcf_out, vcf_filename_out.c_str(), seqan::DefaultOpenMode<seqan::VcfFileOut>::VALUE, seqan::True());
+        seqan::_open(vcf_file_out, vcf_filename_out.c_str(), seqan::DefaultOpenMode<seqan::VcfFileOut>::VALUE, seqan::True());
 
     // Fill contig names.
-//    contigNames(context(vcf_out)) = contigNames(context(vcf_in));
-    appendValue(contigNames(context(vcf_out)), "chr01");
+    contigNames(context(vcf_file_out)) = contig_names;
 
     // Fill sample names.
-    seqan::resize(sampleNames(context(vcf_out)), n_samples);
+    seqan::resize(sampleNames(context(vcf_file_out)), n_samples);
     for (uint32_t sample = 0; sample < n_samples; ++sample)
     {
-        sampleNames(context(vcf_out))[sample] = "SAMPLE_";
-        seqan::appendNumber(sampleNames(context(vcf_out))[sample], sample);
+        sampleNames(context(vcf_file_out))[sample] = "SAMPLE_";
+        seqan::appendNumber(sampleNames(context(vcf_file_out))[sample], sample);
     }
 
     // Write VCF header.
     seqan::VcfHeader header_out;
     appendValue(header_out, seqan::VcfHeaderRecord("fileformat", "VCFv4.2"));
     appendValue(header_out, seqan::VcfHeaderRecord("FORMAT", "<ID=GT,Number=1,Type=String,Description=\"Genotype\">"));
-    writeHeader(vcf_out, header_out);
+    seqan::forEach(contigNames(context(vcf_file_out)), [&header_out](auto const & contigName)
+    {
+        appendValue(header_out, seqan::VcfHeaderRecord("contig",
+                    std::string("<ID=") + seqan::toCString(contigName) + std::string(">")));
+    });
+    writeHeader(vcf_file_out, header_out);
 
     // Fill VCF record prototype.
     seqan::VcfRecord record_out;
@@ -803,18 +839,18 @@ inline void population<n_ploidy>::write(std::string const & vcf_filename_out)
     // Write VCF records.
     for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
     {
-        record_out.rID = std::get<0>(markers_in.positions[marker_id]);
-        record_out.beginPos = std::get<1>(markers_in.positions[marker_id]);
+        record_out.rID = std::get<0>(variants.positions[marker_id]);
+        record_out.beginPos = std::get<1>(variants.positions[marker_id]);
         clear(record_out.id);
         appendNumber(record_out.id, marker_id);
-        record_out.ref = front(markers_in.alleles[marker_id]);
-        record_out.alt = back(markers_in.alleles[marker_id]);
+        record_out.ref = front(variants.alleles[marker_id]);
+        record_out.alt = back(variants.alleles[marker_id]);
 
         // Write VCF sample columns.
         for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
-            write_genotype(record_out.genotypeInfos[sample_id], samples_alts[marker_id][sample_id]);
+            write_genotype(record_out.genotypeInfos[sample_id], samples_alts_v[marker_id][sample_id]);
 
-        writeRecord(vcf_out, record_out);
+        writeRecord(vcf_file_out, record_out);
     }
 }
 
@@ -918,31 +954,59 @@ void run(app_options const & options)
 {
     std::mt19937 generator(options.seed);
 
-    markers<n_ploidy> markers_in;
-    population<n_ploidy> pop_out(markers_in);
+    contig_names_store contig_names;
+    variants variants;
+    dosages_vector<float, n_ploidy> dosages_v;
 
+    founders_distribution founders_d;
+    haplotypes_map haplotypes_m;
+
+    founders_alts_vector founders_alts_v;
+    samples_alts_vector<n_ploidy> samples_alts_v;
+
+    // Simulate or read markers.
     uint32_t n_markers = options.n_markers;
+//    if (options.vcf_filename_in.empty())
+//    {
+//        simulate_variants_positions(variants, generator);
+//        simulate_variants_alleles(variants, generator);
+//        simulate_dosages(dosages_v, generator);
+//    }
+//    else
+//    {
+        read_vcf<n_ploidy>(contig_names, variants, dosages_v, options.vcf_filename_in);
+        n_markers = dosages_v.size();
+//    }
 
-    if (options.vcf_filename_in.empty())
-    {
-        markers_in.simulate(options.n_samples, options.n_markers, generator);
-    }
-    else
-    {
-        markers_in.read(options.vcf_filename_in);
-        n_markers = markers_in.dosages.size();
-    }
+    // Normalize markers dosages by output samples.
+    normalize_dosages_vector(dosages_v, options.n_samples);
 
-    markers_in.normalize(options.n_samples);
+    // Simulate founders distribution.
+    simulate_founders_distribution(founders_d, options.n_founders, options.n_samples, n_ploidy, generator);
 
-    pop_out.resize(options.n_founders, options.n_samples, n_markers);
+    // Simulate haplotypes map.
+    simulate_haplotypes_map(haplotypes_m, founders_d, options.n_samples, n_ploidy, generator);
 
+    // Resize haplotypes.
+    founders_alts_v.resize(n_markers, founders_alts(options.n_founders));
+
+    // Fit haplotypes to input dosages.
     if (options.mip)
-        pop_out.simulate(generator);
+    {
+        mip_fitting<n_ploidy> fitting(haplotypes_m, options.n_founders);
+        fit_founders_alts_vector(fitting, founders_alts_v, dosages_v);
+    }
     else
-        pop_out.simulate(generator);
+    {
+        random_fitting<std::mt19937> fitting(generator);
+        fit_founders_alts_vector(fitting, founders_alts_v, dosages_v);
+    }
 
-    pop_out.write(options.vcf_filename_out);
+    // Generate samples view.
+    view_samples_alts_vector(samples_alts_v, founders_alts_v, haplotypes_m);
+
+    // Write population.
+    write_vcf(contig_names, variants, samples_alts_v, options.vcf_filename_out);
 }
 
 // ----------------------------------------------------------------------------
