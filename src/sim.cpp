@@ -837,19 +837,21 @@ struct app_options
     uint32_t n_markers;
 
     uint32_t seed;
+    bool mip;
 
     app_options():
         n_ploidy(4),
         n_founders(1),
         n_samples(1),
         n_markers(1),
-        seed(0)
+        seed(0),
+        mip(false)
     {}
 
     void setup(seqan::ArgumentParser & parser) const
     {
         setAppName(parser, "SimBA-hap");
-        setShortDescription(parser, "Haplotypes simulator");
+        setShortDescription(parser, "Haplotype simulator");
         setCategory(parser, "Simulation");
 
         setVersion(parser, SEQAN_APP_VERSION " [" SEQAN_REVISION "]");
@@ -889,6 +891,9 @@ struct app_options
                                                 seqan::ArgParseOption::INTEGER));
         setMinValue(parser, "seed", "0");
         setDefaultValue(parser, "seed", seed);
+
+        addOption(parser, seqan::ArgParseOption("", "mip", "Compute optimal best-fit via Mixed-Integer Programming. \
+                                                            Default: compute approximate fit via gradient descent."));
     }
 
     void parse(seqan::ArgumentParser const & parser)
@@ -900,6 +905,7 @@ struct app_options
         getOptionValue(n_samples, parser, "samples");
         getOptionValue(n_markers, parser, "markers");
         getOptionValue(seed, parser, "seed");
+        getOptionValue(mip, parser, "mip");
     }
 };
 
@@ -930,7 +936,11 @@ void run(app_options const & options)
     markers_in.normalize(options.n_samples);
 
     pop_out.resize(options.n_founders, options.n_samples, n_markers);
-    pop_out.simulate(generator);
+
+    if (options.mip)
+        pop_out.simulate(generator);
+    else
+        pop_out.simulate(generator);
 
     pop_out.write(options.vcf_filename_out);
 }
