@@ -217,13 +217,13 @@ inline bool is_unknown(genotype_t const & genotype)
 }
 
 // ----------------------------------------------------------------------------
-// Function alt_dosage()
+// Function get_dosage()
 // ----------------------------------------------------------------------------
 
-template <typename genotype_t>
-inline uint32_t alt_dosage(genotype_t const & genotype)
+template <typename genotype_t, typename value_t>
+inline uint32_t get_dosage(genotype_t const & genotype, value_t value)
 {
-    return std::count(genotype.begin(), genotype.end(), '1');
+    return std::count(genotype.begin(), genotype.end(), value);
 }
 
 // ============================================================================
@@ -239,18 +239,18 @@ template <typename value_t, uint32_t n_ploidy>
 using dosages_distribution = std::array<value_t, n_ploidy + 1u>;
 
 // ----------------------------------------------------------------------------
-// Function alt_dosages_distribution()
+// Function make_dosages_distribution()
 // ----------------------------------------------------------------------------
 
-template <typename value_t, uint32_t n_ploidy, typename genotypes_t>
-inline dosages_distribution<value_t, n_ploidy> alt_dosages_distribution(genotypes_t const & genotypes)
+template <uint32_t n_ploidy, typename genotypes_t>
+inline dosages_distribution<uint32_t, n_ploidy> make_dosages_distribution(genotypes_t const & genotypes)
 {
-    dosages_distribution<value_t, n_ploidy> dosages_d;
+    dosages_distribution<uint32_t, n_ploidy> dosages_d;
 
     std::fill(dosages_d.begin(), dosages_d.end(), 0u);
 
     for (auto const & genotype : genotypes)
-        dosages_d[alt_dosage(genotype)]++;
+        dosages_d[get_dosage(genotype, 1u)]++;
 
     return dosages_d;
 }
@@ -265,6 +265,20 @@ inline void normalize_dosages_distribution(dosages_distribution_t & dosages_d, u
     auto dosages_sum = std::accumulate(dosages_d.begin(), dosages_d.end(), 0.0f);
     std::transform(dosages_d.begin(), dosages_d.end(), dosages_d.begin(),
                   [n_samples, dosages_sum](auto d) { return n_samples * d / dosages_sum; });
+}
+
+// ----------------------------------------------------------------------------
+// Function l1_norm()
+// ----------------------------------------------------------------------------
+
+template <typename dosages_distribution_a_t, typename dosages_distribution_b_t>
+inline typename dosages_distribution_a_t::value_type
+l1_norm(dosages_distribution_a_t const & a, dosages_distribution_b_t const & b)
+{
+    typedef typename dosages_distribution_a_t::value_type value_t;
+
+    return std::inner_product(a.begin(), a.end(), b.begin(), value_t(), std::plus<value_t>(),
+                              [](auto a_i, auto b_i){ return std::abs(a_i - b_i); });
 }
 
 // ----------------------------------------------------------------------------
@@ -421,27 +435,48 @@ template <uint32_t n_ploidy>
 using samples_alts_vector = std::vector<samples_alts<n_ploidy>>; // [marker][sample][haplotype]
 
 // ----------------------------------------------------------------------------
-// Function view_samples_alts_vector()
+// Function fill_samples_alts()
 // ----------------------------------------------------------------------------
 
-template <typename samples_alts_vector_t, typename founders_alts_vector_t, typename haplotypes_map_t>
-inline void view_samples_alts_vector(samples_alts_vector_t & samples_alts_v,
-                                     founders_alts_vector_t & founders_alts_v,
-                                     haplotypes_map_t const & haplotypes_m)
+template <typename samples_alts_t, typename founders_alts_t, typename haplotypes_map_t>
+inline void fill_samples_alts(samples_alts_t & samples_alts,
+                              founders_alts_t & founders_alts,
+                              haplotypes_map_t const & haplotypes_m)
 {
-    typedef typename samples_alts_vector_t::value_type samples_alts_t;
-
-    uint32_t n_markers = founders_alts_v.size();
     uint32_t n_samples = haplotypes_m.size();
     uint32_t n_ploidy = haplotypes_m.shape()[1];
 
-    samples_alts_v.resize(n_markers, samples_alts_t(n_samples));
+    samples_alts.resize(n_samples);
+
+    for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
+        for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; ++haplotype_id)
+            samples_alts[sample_id][haplotype_id] = founders_alts[haplotypes_m[sample_id][haplotype_id]];
+}
+
+// ----------------------------------------------------------------------------
+// Function fill_samples_alts_vector()
+// ----------------------------------------------------------------------------
+
+template <typename samples_alts_vector_t, typename founders_alts_vector_t, typename haplotypes_map_t>
+inline void fill_samples_alts_vector(samples_alts_vector_t & samples_alts_v,
+                                     founders_alts_vector_t & founders_alts_v,
+                                     haplotypes_map_t const & haplotypes_m)
+{
+    uint32_t n_markers = founders_alts_v.size();
+
+    samples_alts_v.resize(n_markers);
 
     for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
-        for (uint32_t sample_id = 0; sample_id < n_samples; ++sample_id)
-            for (uint8_t haplotype_id = 0; haplotype_id < n_ploidy; ++haplotype_id)
-                samples_alts_v[marker_id][sample_id][haplotype_id] = founders_alts_v[marker_id][haplotypes_m[sample_id][haplotype_id]];
+        fill_samples_alts(samples_alts_v[marker_id], founders_alts_v[marker_id], haplotypes_m);
+}
 
+// ----------------------------------------------------------------------------
+// Function cerr_samples_alts_vector()
+// ----------------------------------------------------------------------------
+
+template <typename samples_alts_vector_t>
+inline void cerr_samples_alts_vector(samples_alts_vector_t const & samples_alts_v)
+{
     std::for_each(samples_alts_v.begin(), samples_alts_v.end(), [](auto & samples_alts_m)
     {
         std::cerr << "SAMPLES ALLELE: " << samples_alts_m << std::endl;
@@ -457,35 +492,110 @@ inline void view_samples_alts_vector(samples_alts_vector_t & samples_alts_v,
 // Class random_fitting
 // ----------------------------------------------------------------------------
 
-template <typename generator_t>
-class random_fitting
-{
-public:
-    template <typename founders_alts_t, typename dosages_distribution_t>
-    inline float fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d);
-
-    random_fitting(generator_t & generator) :
-        generator(generator)
-    {}
-
-private:
-    generator_t & generator;
-    std::bernoulli_distribution distribution;
-};
+//template <typename generator_t>
+//class random_fitting
+//{
+//public:
+//    template <typename founders_alts_t, typename dosages_distribution_t>
+//    inline float fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d);
+//
+//    random_fitting(generator_t & generator) :
+//        generator(generator)
+//    {}
+//
+//private:
+//    generator_t & generator;
+//    std::bernoulli_distribution distribution;
+//};
 
 // ----------------------------------------------------------------------------
 // Method random_fitting::fit()
 // ----------------------------------------------------------------------------
 
-template <typename generator_t> template <typename founders_alts_t, typename dosages_distribution_t>
-inline float random_fitting<generator_t>::fit(founders_alts_t & founders_alts, dosages_distribution_t const & /* dosages_d_in */)
-{
-    std::generate(founders_alts.begin(), founders_alts.end(), [this]()
-    {
-        return distribution(generator);
-    });
+//template <typename generator_t> template <typename founders_alts_t, typename dosages_distribution_t>
+//inline float random_fitting<generator_t>::fit(founders_alts_t & founders_alts, dosages_distribution_t const & /* dosages_d_in */)
+//{
+//    std::generate(founders_alts.begin(), founders_alts.end(), [this]()
+//    {
+//        return distribution(generator);
+//    });
+//
+//    return 0.0;
+//}
 
-    return 0.0;
+// ----------------------------------------------------------------------------
+// Class descent_fitting
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy>
+class descent_fitting
+{
+public:
+    descent_fitting(haplotypes_map const & haplotypes_m) :
+        haplotypes_m(haplotypes_m)
+    {}
+
+    template <typename founders_alts_t, typename dosages_distribution_t>
+    inline float fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d);
+
+private:
+    haplotypes_map const & haplotypes_m;
+
+    samples_alts<n_ploidy> samples_alts_view;
+    std::vector<float> distances;
+};
+
+// ----------------------------------------------------------------------------
+// Method descent_fitting::fit()
+// ----------------------------------------------------------------------------
+
+template <uint8_t n_ploidy> template <typename founders_alts_t, typename dosages_distribution_t>
+inline float descent_fitting<n_ploidy>::fit(founders_alts_t & founders_alts, dosages_distribution_t const & dosages_d_in)
+{
+    fill_samples_alts(samples_alts_view, founders_alts, haplotypes_m);
+
+    std::fill(founders_alts.begin(), founders_alts.end(), 0u);
+
+    uint32_t n_founders = founders_alts.size();
+    distances.resize(n_founders);
+
+    auto dosages_d_zero = make_dosages_distribution<n_ploidy>(samples_alts_view);
+    auto distance = l1_norm(dosages_d_in, dosages_d_zero);
+
+    for (uint32_t ones = 0; ones < n_founders; ones++)
+    {
+//        auto dosages_d_x = make_dosages_distribution<n_ploidy>(samples_alts_view);
+//        std::cerr << "CURRENT DISTANCE: " << distance << " = " << std::make_pair(dosages_d_in, dosages_d_x) << std::endl;
+
+        std::transform(founders_alts.begin(), founders_alts.end(), distances.begin(),
+                      [this, &founders_alts, &dosages_d_in](auto & alt)
+        {
+            if (alt == 1) return std::numeric_limits<float>::max();
+
+            alt = 1;
+            auto dosages_d_x = make_dosages_distribution<n_ploidy>(samples_alts_view);
+            alt = 0;
+//            std::cerr << "DISTANCE X: " << l1_norm(dosages_d_in, dosages_d_x) << " = " << std::make_pair(dosages_d_in, dosages_d_x) << std::endl;
+            return l1_norm(dosages_d_in, dosages_d_x);
+        });
+
+        auto distances_it = std::min_element(distances.begin(), distances.end());
+        auto min_distance = *distances_it;
+        auto min_i = distances_it - distances.begin();
+//        std::cerr << "NEXT DISTANCES: " << distances << std::endl;
+
+        if (distance < min_distance)
+            break;
+
+        distance = min_distance;
+        founders_alts[min_i] = 1;
+    }
+
+    auto dosages_d_out = make_dosages_distribution<n_ploidy>(samples_alts_view);
+    std::cerr << "DISTANCE: " << distance << " = " << std::make_pair(dosages_d_in, dosages_d_out) << std::endl;
+//    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+
+    return distance;
 }
 
 // ----------------------------------------------------------------------------
@@ -772,7 +882,7 @@ inline void read_vcf(contig_names_store_t & contig_names,
             if (get_ploidy(genotype) != n_ploidy)
                 throw seqan::IOError("Input ploidy does not match VCF genotypes");
 
-            dosages_d[alt_dosage(genotype)]++;
+            dosages_d[get_dosage(genotype, '1')]++;
         }
 
         variants.positions.push_back(position);
@@ -990,6 +1100,9 @@ void run(app_options const & options)
     // Resize haplotypes.
     founders_alts_v.resize(n_markers, founders_alts(options.n_founders));
 
+    // Generate samples view.
+    fill_samples_alts_vector(samples_alts_v, founders_alts_v, haplotypes_m);
+
     // Fit haplotypes to input dosages.
     if (options.mip)
     {
@@ -998,12 +1111,16 @@ void run(app_options const & options)
     }
     else
     {
-        random_fitting<std::mt19937> fitting(generator);
+        descent_fitting<n_ploidy> fitting(haplotypes_m);
         fit_founders_alts_vector(fitting, founders_alts_v, dosages_v);
     }
+//    else
+//    {
+//        random_fitting<std::mt19937> fitting(generator);
+//        fit_founders_alts_vector(fitting, founders_alts_v, dosages_v);
+//    }
 
-    // Generate samples view.
-    view_samples_alts_vector(samples_alts_v, founders_alts_v, haplotypes_m);
+    cerr_samples_alts_vector(samples_alts_v);
 
     // Write population.
     write_vcf(contig_names, variants, samples_alts_v, options.vcf_filename_out);
