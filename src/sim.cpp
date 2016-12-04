@@ -800,11 +800,14 @@ inline void fit_founders_alts_vector(fitting_t & fitting, founders_alts_vector_t
 {
     uint32_t n_markers = founders_alts_v.size();
 
+    double start = seqan::sysTime();
     float distances = 0u;
     for (uint32_t marker_id = 0; marker_id < n_markers; ++marker_id)
         distances += fitting.fit(founders_alts_v[marker_id], dosages_v[marker_id]);
+    double seconds = seqan::sysTime() - start;
 
     std::cerr << "DISTANCES: " << distances << std::endl;
+    std::cerr << "SECONDS: " << seconds << std::endl;
 
     std::cerr << "=================================================================" << std::endl << std::endl;
 
