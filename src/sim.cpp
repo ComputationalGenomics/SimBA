@@ -758,15 +758,15 @@ inline float mip_fitting<n_ploidy>::fit(founders_alts_t & founders_alts, dosages
     float distance = mip.solValue();
 
     dosages_distribution<uint32_t, n_ploidy> dosages_d_out;
-    std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_d_out.begin(), [this](auto d){ return mip.sol(d); });
+    std::transform(mip_dosages.begin(), mip_dosages.end(), dosages_d_out.begin(), [this](auto d){ return std::round(mip.sol(d)); });
     std::cerr << "DISTANCE: " << distance << " = " << std::make_pair(dosages_d_in, dosages_d_out) << std::endl;
 
 //    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
-
+//
 //    std::for_each(mip_errors.begin(), mip_errors.end(), [this](auto const & sample_errors)
 //    {
-//        dosages_t errors;
-//        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [this](auto i){ return mip.sol(i); });
+//        dosages_distribution<double, n_ploidy> errors;
+//        std::transform(sample_errors.begin(), sample_errors.end(), errors.begin(), [this](auto e){ return mip.sol(e); });
 //        std::cerr << "ERRORS: " << errors << std::endl;
 //    });
 //
@@ -774,12 +774,20 @@ inline float mip_fitting<n_ploidy>::fit(founders_alts_t & founders_alts, dosages
 //
 //    std::for_each(mip_indicators.begin(), mip_indicators.end(), [this](auto const & sample_indicators)
 //    {
-//        typename dosages<bool, n_ploidy>::type indicators;
-//        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [this](auto i){ return mip.sol(i); });
+//        dosages_distribution<bool, n_ploidy> indicators;
+//        std::transform(sample_indicators.begin(), sample_indicators.end(), indicators.begin(), [this](auto i){ return std::round(mip.sol(i)); });
 //        std::cerr << "INDICATORS: " << indicators << std::endl;
 //    });
 //
+//    std::cerr << "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -" << std::endl << std::endl;
+//
+//    dosages_distribution<double, n_ploidy> zeds;
+//    std::transform(mip_z.begin(), mip_z.end(), zeds.begin(), [this](auto z){ return mip.sol(z); });
+//    std::cerr << "ZEDS: " << zeds << std::endl;
+//
 //    std::cerr << "-----------------------------------------------------------------" << std::endl << std::endl;
+
+    SEQAN_ASSERT_EQ(std::accumulate(dosages_d_out.begin(), dosages_d_out.end(), 0u), haplotypes_m.size());
 
     // Update founder alleles.
     std::transform(mip_alts.begin(), mip_alts.end(), founders_alts.begin(), [this](auto a){ return mip.sol(a); });
