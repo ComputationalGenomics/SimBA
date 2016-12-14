@@ -1166,18 +1166,27 @@ int main(int argc, char const ** argv)
     {
         switch (options.n_ploidy)
         {
-//            case 2:
-//                run<2>(options);
-//                break;
+            case 2:
+                run<2>(options);
+                break;
+            case 3:
+                run<3>(options);
+                break;
             case 4:
                 run<4>(options);
                 break;
-//            case 6:
-//                run<6>(options);
-//                break;
-//            case 8:
-//                run<8>(options);
-//                break;
+            case 5:
+                run<5>(options);
+                break;
+            case 6:
+                run<6>(options);
+                break;
+            case 7:
+                run<7>(options);
+                break;
+            case 8:
+                run<8>(options);
+                break;
             default:
                 throw seqan::RuntimeError("Unsupported ploidy");
         }
