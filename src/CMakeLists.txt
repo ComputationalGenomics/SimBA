@@ -54,8 +54,8 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEQAN_CXX_FLAGS}")
 # ----------------------------------------------------------------------------
 
 # Add executables.
-add_executable (sim sim.cpp)
-target_link_libraries (sim ${SEQAN_LIBRARIES} ${LEMON_LIBRARIES})
+add_executable (simba-hap simba-hap.cpp)
+target_link_libraries (simba-hap ${SEQAN_LIBRARIES} ${LEMON_LIBRARIES})
 
 # ----------------------------------------------------------------------------
 # Tests
