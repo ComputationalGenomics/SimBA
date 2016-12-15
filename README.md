@@ -1,12 +1,19 @@
 # Simulation using Best-fit Algorithm
 SimBA (**Sim**ulation busing **B**est-fit **A**lgorithms) 
 
-#Pre-requisites
-
 
 #Get Started
+
+Please download a precompiled version of SimBA from the [releases page](https://github.com/ComputationalGenomics/SimBA/releases/). We provide binaries for Linux and macOS.
+
+##How to run?
+
+Here we provide a short description on how to use it from the command line.
+
+The following command simulates 40 tetraploid samples based on 30 founders. Input markers are read from file ```input.vcf```. Output population is written in file ```output.vcf```:
+
 ```sh
-git clone git://github.com/ComputationalGenomics/SimBA
+$ simba-hap --founders 30 --samples 40 --ploidy 4 --input-vcf input.vcf --output-vcf output.vcf
 ```
 
 #Citation
@@ -14,30 +21,6 @@ git clone git://github.com/ComputationalGenomics/SimBA
 Please cite the following article if you use SimBA in your research:
 
 E. Siragusa, N. Haiminen, F. Utro, L. Parida. Linear time algorithms to construct populations fitting multiple constraint distributions at genomic scales.
-
-#Executable
-
-For convenience, we also provide a precompiled version of SimRA usable via command line that you can download from the [binary folder](https://github.com/ComputationalGenomics/SimBA/tree/master/binary). 
-
-Here we provide a short description on how to use it.
-
-##How to run?
-
-```sh
-$ 
-```
-
-###Required parameters
-
-```sh
-```
-
-###Optional parameters
-
-```sh
-```
-
-##Example
 
 #Contributing
 
@@ -60,7 +43,7 @@ limitations under the License.
 
 #Contact
 
-If you have suggestions, questions or comments regarding SimRA, please email us to: 
+If you have suggestions, questions or comments regarding SimBA, please email us to: 
 
 pa_ri_da (at) us.ibm.com  (remove the underscores)
 
