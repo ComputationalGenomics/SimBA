@@ -44,7 +44,7 @@ $
 We welcome contributions but request that you follow the guidelines indicated [here](https://github.com/ComputationalGenomics/SimBA/blob/master/Contributing/Contributing.md).
 
 #Apache License v. 2.0
-Copyright 2015 IBM Corporation
+Copyright 2016 IBM Corporation
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
