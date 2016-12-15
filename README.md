@@ -13,7 +13,7 @@ git clone git://github.com/ComputationalGenomics/SimBA
 
 Please cite the following article if you use SimBA in your research:
 
-A.P. Carrieri, F. Utro, L. Parida. Sampling ARG of multiple populations under complex configurations of subdivision and admixture. Bioinformatics, 2015.
+E. Siragusa, N. Haiminen, F. Utro, L. Parida. Linear time algorithms to construct populations fitting multiple constraint distributions at genomic scales.
 
 #Executable
 
