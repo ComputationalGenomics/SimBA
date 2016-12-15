@@ -1,5 +1,5 @@
-# Simulation based on Random-graph Algorithms
-SimRA (**Sim**ulation based on **R**andom-graphs **A**lgorithms) 
+# Simulation using Best-fit Algorithm
+SimBA (**Sim**ulation busing **B**est-fit **A**lgorithms) 
 
 #Pre-requisites
 
