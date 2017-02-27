@@ -16,6 +16,39 @@ The following command simulates 40 tetraploid samples based on 30 founders. Inpu
 $ simba-hap --founders 30 --samples 40 --ploidy 4 --input-vcf input.vcf --output-vcf output.vcf
 ```
 
+##How to build packages
+
+Go to the build folder:
+
+```sh
+$ cd build
+```
+
+Then run cmake, specifying the path to IBM CPLEX. For example, on Linux:
+
+```sh
+$ cmake .. -DSTATIC_BUILDS=ON \ 
+           -DILOG_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio127/cplex \ 
+           -DILOG_CPLEX_LIBRARY=/opt/ibm/ILOG/CPLEX_Studio127/cplex/lib/x86-64_linux/static_pic/libcplex.a \
+           -DILOG_CONCERT_LIBRARY=/opt/ibm/ILOG/CPLEX_Studio127/concert/lib/x86-64_linux/static_pic/libconcert.a
+```
+
+Or on macOS: 
+
+```sh
+$ cmake .. -DSTATIC_BUILDS=ON \ 
+           -DCMAKE_CXX_COMPILER=/opt/local/bin/g++-mp-4.9 \
+           -DILOG_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio126/cplex/ \
+           -DILOG_CPLEX_LIBRARY=/opt/ibm/ILOG/CPLEX_Studio126/cplex/lib/x86-64_osx/static_pic/libcplex.a \
+           -DILOG_CONCERT_LIBRARY=/opt/ibm/ILOG/CPLEX_Studio126/concert/lib/x86-64_osx/static_pic/libconcert.a
+```
+
+Finally build the package by invoking make as follows: 
+
+```sh
+$ make package
+```
+
 #Citation
 
 Please cite the following article if you use SimBA in your research:
