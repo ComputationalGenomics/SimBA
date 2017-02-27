@@ -16,7 +16,7 @@ if (NOT ZLIB_FOUND)
 endif (NOT ZLIB_FOUND)
 
 if (NOT SeqAn_FOUND)
-  message (STATUS "  SeqAn library not found: build aborted")
+  message (FATAL_ERROR "  SeqAn library not found: build aborted")
   return ()
 endif (NOT SeqAn_FOUND)
 
@@ -26,7 +26,7 @@ endif (NOT SeqAn_FOUND)
 #endif (NOT LEMON_FOUND)
 
 if (NOT Boost_FOUND)
-  message (STATUS "  Boost library not found: build aborted")
+  message (FATAL_ERROR "  Boost library not found: build aborted")
   return ()
 endif (NOT Boost_FOUND)
 
