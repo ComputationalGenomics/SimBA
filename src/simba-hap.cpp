@@ -609,7 +609,7 @@ inline float descent_fitting<n_ploidy>::fit(founders_alts_t & founders_alts, dos
 // Class mip_fitting
 // ----------------------------------------------------------------------------
 
-#ifdef LEMON_HAVE_CPLEX
+#ifdef LEMON_HAVE_MIP
 template <uint8_t n_ploidy>
 class mip_fitting
 {
@@ -806,7 +806,7 @@ inline float mip_fitting<n_ploidy>::fit(founders_alts_t & founders_alts, dosages
 
     return distance;
 }
-#endif // LEMON_HAVE_CPLEX
+#endif // LEMON_HAVE_MIP
 
 // ----------------------------------------------------------------------------
 // Function fit_founders_alts_vector()
@@ -1058,7 +1058,7 @@ struct app_options
         setMinValue(parser, "seed", "0");
         setDefaultValue(parser, "seed", seed);
 
-#ifdef LEMON_HAVE_CPLEX
+#ifdef LEMON_HAVE_MIP
         addOption(parser, seqan::ArgParseOption("", "mip", "Compute optimal best-fit via Mixed-Integer Programming. \
                                                             Default: compute approximate fit via gradient descent."));
 #endif
@@ -1073,7 +1073,7 @@ struct app_options
         getOptionValue(n_samples, parser, "samples");
         getOptionValue(n_markers, parser, "markers");
         getOptionValue(seed, parser, "seed");
-#ifdef LEMON_HAVE_CPLEX
+#ifdef LEMON_HAVE_MIP
         getOptionValue(mip, parser, "mip");
 #endif
     }
@@ -1128,7 +1128,7 @@ void run(app_options const & options)
     fill_samples_alts_vector(samples_alts_v, founders_alts_v, haplotypes_m);
 
     // Fit haplotypes to input dosages.
-#ifdef LEMON_HAVE_CPLEX
+#ifdef LEMON_HAVE_MIP
     if (options.mip)
     {
         mip_fitting<n_ploidy> fitting(haplotypes_m, options.n_founders);
