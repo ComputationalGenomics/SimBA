@@ -26,17 +26,11 @@ set (CMAKE_INCLUDE_PATH
     ${CMAKE_SOURCE_DIR}/../seqan/include
     ${CMAKE_INCLUDE_PATH})
 set (CMAKE_MODULE_PATH
-#    ${CMAKE_SOURCE_DIR}/../seqan/util/cmake/FindTBB
     ${CMAKE_SOURCE_DIR}/../seqan/util/cmake
     ${CMAKE_MODULE_PATH})
-
-include (SeqAnContribs)
-include (SeqAnBuildSystem)
-set (SEQAN_ROOT_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../seqan/" CACHE INTERNAL "Root source directory." FORCE)
-seqan_build_system_init ()
-seqan_get_repository_info ()
-seqan_setup_library ()
-include (package)
+set (CMAKE_PREFIX_PATH
+    ${CMAKE_SOURCE_DIR}/../seqan/util/cmake
+    ${CMAKE_PREFIX_PATH})
 
 # ----------------------------------------------------------------------------
 # Prepare Lemon Library

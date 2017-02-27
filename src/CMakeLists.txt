@@ -8,27 +8,27 @@
 
 find_package (ZLIB)
 find_package (SeqAn REQUIRED)
-#find_package (Boost 1.51.0 REQUIRED)
-
-if (NOT CXX11_FOUND)
-    message (STATUS "  C++11 not found: built aborted")
-    return ()
-endif (NOT CXX11_FOUND)
-
-#if (NOT SeqAn_FOUND)
-#  message (STATUS "  SeqAn library not found: build aborted")
-#  return ()
-#endif (NOT SeqAn_FOUND)
-
-#if (NOT Boost_FOUND)
-#  message (STATUS "  Boost library not found: build aborted")
-#  return ()
-#endif (NOT Boost_FOUND)
+#find_package (LEMON REQUIRED)
+find_package (Boost 1.51.0 REQUIRED)
 
 if (NOT ZLIB_FOUND)
   message (STATUS "  Zlib library not found: gzip support disabled")
 endif (NOT ZLIB_FOUND)
 
+if (NOT SeqAn_FOUND)
+  message (STATUS "  SeqAn library not found: build aborted")
+  return ()
+endif (NOT SeqAn_FOUND)
+
+#if (NOT LEMON_FOUND)
+#  message (STATUS "  LEMON library not found: build aborted")
+#  return ()
+#endif (NOT LEMON_FOUND)
+
+if (NOT Boost_FOUND)
+  message (STATUS "  Boost library not found: build aborted")
+  return ()
+endif (NOT Boost_FOUND)
 
 # ----------------------------------------------------------------------------
 # Build Setup
