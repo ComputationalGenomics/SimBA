@@ -21,7 +21,7 @@ set (EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
 # Enable static linkage.
 if (STATIC_BUILDS)
-    message (STATUS "Static builds.")
+    message (STATUS "Building static binaries.")
 
     set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
     if (APPLE)
@@ -59,13 +59,13 @@ endif ()
 
 message (STATUS "Configuring SeqAn")
 set (CMAKE_INCLUDE_PATH
-    ${CMAKE_SOURCE_DIR}/../seqan/include
+    ${CMAKE_SOURCE_DIR}/deps/seqan/include
     ${CMAKE_INCLUDE_PATH})
 set (CMAKE_MODULE_PATH
-    ${CMAKE_SOURCE_DIR}/../seqan/util/cmake
+    ${CMAKE_SOURCE_DIR}/deps/seqan/util/cmake
     ${CMAKE_MODULE_PATH})
 set (CMAKE_PREFIX_PATH
-    ${CMAKE_SOURCE_DIR}/../seqan/util/cmake
+    ${CMAKE_SOURCE_DIR}/deps/seqan/util/cmake
     ${CMAKE_PREFIX_PATH})
 
 # ----------------------------------------------------------------------------
