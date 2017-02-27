@@ -66,4 +66,4 @@ target_link_libraries (simba-hap ${SEQAN_LIBRARIES} ${LEMON_LIBRARIES})
 # ----------------------------------------------------------------------------
 
 # Install in ${PREFIX}/bin directory
-#install (TARGETS sim DESTINATION bin)
+install (TARGETS simba-hap DESTINATION bin)
